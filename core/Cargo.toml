@@ -16,6 +16,7 @@ hex.workspace = true
 
 [dev-dependencies]
 orchard = { version = "0.16", features = ["circuit"] }
+zcash_keys = { version = "0.17", default-features = false, features = ["orchard", "sapling", "std", "test-dependencies"] }
 rand = "0.10"
 zcash_primitives.workspace = true
 zcash_protocol.workspace = true

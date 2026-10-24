@@ -1,0 +1,21 @@
+{
+  "name": "chit-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "cd ../wasm && wasm-pack build --target web --release --out-dir ../web/pkg",
+    "dev": "vite --port 5290 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 5290"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^6.4.5"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/hanken-grotesk": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "qrcode-generator": "^1.4.4"
+  }
+}
