@@ -55,3 +55,14 @@ async function get(url: string): Promise<any> {
 export function explorerUrl(network: Network, txid: string): string | null {
   return network === 'main' ? `https://blockchair.com/zcash/transaction/${txid}` : null;
 }
+
+export interface ChainStats {
+  blocks: number;
+  tx24h: number;
+}
+
+/** Public network numbers for the home page. Carries no user data. */
+export async function fetchStats(): Promise<ChainStats> {
+  const s = await get(`${BASE}/stats`);
+  return { blocks: s.data.best_block_height ?? s.data.blocks, tx24h: s.data.transactions_24h };
+}

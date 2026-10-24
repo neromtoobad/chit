@@ -24,5 +24,13 @@ export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [cspPlugin()],
   // No data: URIs, so the font-src 'self' policy holds for every asset.
-  build: { target: 'es2022', assetsInlineLimit: 0 },
+  build: {
+    target: 'es2022',
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      // The app, plus the <chit-verify> badge at a stable URL other sites can load.
+      input: { main: 'index.html', embed: 'src/embed.ts' },
+      output: { entryFileNames: (c) => (c.name === 'embed' ? 'embed.js' : 'assets/[name]-[hash].js') },
+    },
+  },
 });

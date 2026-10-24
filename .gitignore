@@ -5,3 +5,5 @@ node_modules
 /web/public/dev
 /web/.claude
 /deploy
+/npm/pkg
+/npm/*.tgz

@@ -19,6 +19,27 @@ It implements the Orchard and Ironwood output disclosures that draft
 [ZIP 311](https://zips.z.cash/zip-0311) leaves as `TODO: Add support for Orchard`. The
 proposed spec text is in [`docs/zip-0311-orchard-ironwood.md`](docs/zip-0311-orchard-ironwood.md).
 
+## What you can do with it
+
+- **Make and check chits.** Pick one output of your transaction, share it as a link or QR
+  code, and let anyone verify it. The checker shows every cryptographic check as it runs.
+- **Pay & prove.** A merchant creates a payment request: a ZIP 321 link with the amount,
+  their address and an invoice reference in the memo. The customer pays it from Zodl in
+  one tap and sends back their chit. Chit then checks it against the request and stamps it
+  **Paid in full**, **Short**, **Wrong recipient** or **Memo mismatch**.
+- **Proof of payouts.** Publish one ledger page that proves a set of shielded payments
+  (prizes, grants, payroll) and their total, line by line. Recipients can be hidden, and it
+  exports to CSV or JSON. The payer's wallet stays closed.
+- **Developer kit:**
+  - the `chit-zcash` npm package (WebAssembly, works in Node and the browser);
+  - an embeddable `<chit-verify chit="zout1…">` badge;
+  - the `chit` CLI;
+  - the Rust crate.
+- **The specimen.** A real, fully proven v6 Ironwood transaction that pays out five
+  prizes. It is funded from nothing, so it is not on chain. It ships with the app, with
+  its throwaway keys, so you can try every flow without a wallet. The app always labels it
+  SPECIMEN and never calls it "on chain".
+
 ## What a chit reveals
 
 |                                              | Viewing key | Chit |
@@ -125,9 +146,21 @@ let v = chit_core::verify(&tx, &chit_core::Disclosure::decode(chit)?)?;
 
 ### JavaScript (WebAssembly)
 
-`web/pkg` is a wasm-pack package exposing `scan(txHex, ufvk, network)`,
-`verify(txHex, chit)`, `inspect(chit)` and `txid(txHex)`. All of them take and return
-strings and do no I/O.
+`./scripts/npm.sh` builds the `chit-zcash` package (`npm/chit-zcash-0.1.0.tgz`). It works in
+Node and the browser, and does no I/O:
+
+```js
+import { ready, verify } from 'chit-zcash';
+await ready();
+const report = verify(rawTxHex, 'zout1…');   // { valid, verified, steps: [{ label, ok }] }
+```
+
+### Embed
+
+```html
+<script type="module" src="https://chit.nerom.site/embed.js"></script>
+<chit-verify chit="zout1…"></chit-verify>
+```
 
 ## Build
 
@@ -156,9 +189,11 @@ macOS `ar` cannot index wasm objects, which breaks the `secp256k1-sys` C depende
 |---|---|
 | `core/` | `chit-core`: encoding, scan, verify. Unit tests in `src/tests.rs`, integration tests in `tests/` |
 | `core/examples/fixture.rs` | builds the proven synthetic Ironwood transaction in `tests/fixtures/` |
+| `core/examples/specimen.rs` | builds the public five-payout specimen in `web/public/specimen/` |
+| `npm/` | the `chit-zcash` package wrapper |
 | `wasm/` | WebAssembly bindings |
 | `cli/` | the `chit` command |
-| `web/` | the static web app (Vite, TypeScript, no framework) |
+| `web/` | the static web app (Vite, TypeScript, no framework) and the `<chit-verify>` embed |
 | `docs/` | the proposed ZIP 311 text |
 
 ## License

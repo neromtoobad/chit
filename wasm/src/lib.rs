@@ -93,22 +93,65 @@ struct VerifiedJson {
     memo: Memo,
 }
 
-/// Verifies a disclosure against the raw transaction it names.
+#[derive(Serialize)]
+struct StepJson {
+    id: &'static str,
+    label: String,
+    /// true, false, or null when an earlier step failed and this one did not run.
+    ok: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct ReportJson {
+    valid: bool,
+    error: Option<String>,
+    verified: Option<VerifiedJson>,
+    steps: Vec<StepJson>,
+}
+
+/// Verifies a disclosure against the raw transaction it names, returning every check.
+/// Throws only when the inputs cannot be parsed at all.
 #[wasm_bindgen]
 pub fn verify(tx_hex: &str, disclosure: &str) -> Result<String, JsError> {
     let d = Disclosure::decode(disclosure).map_err(|e| JsError::new(&e.to_string()))?;
     let tx = tx_from_hex(tx_hex)?;
-    let v = chit_core::verify(&tx, &d).map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(json(&VerifiedJson {
-        network: network_name(v.network),
-        txid: v.txid,
-        pool: v.pool.name(),
-        action: v.action,
-        direction: direction_name(v.direction),
-        value_zat: v.value_zat,
-        recipient: v.recipient,
-        memo: (&v.memo).into(),
+    let r = chit_core::verify_with_steps(&tx, &d);
+    let steps = r.steps.into_iter().map(|s| StepJson { id: s.id, label: s.label, ok: s.ok }).collect();
+    Ok(json(&match r.result {
+        Ok(v) => ReportJson {
+            valid: true,
+            error: None,
+            verified: Some(VerifiedJson {
+                network: network_name(v.network),
+                txid: v.txid,
+                pool: v.pool.name(),
+                action: v.action,
+                direction: direction_name(v.direction),
+                value_zat: v.value_zat,
+                recipient: v.recipient,
+                memo: (&v.memo).into(),
+            }),
+            steps,
+        },
+        Err(e) => ReportJson { valid: false, error: Some(e.to_string()), verified: None, steps },
     }))
+}
+
+/// Whether two addresses share the same Orchard receiver (a disclosure's recipient against
+/// an invoice's address, say). False when either has no Orchard receiver.
+#[wasm_bindgen]
+pub fn same_receiver(a: &str, b: &str, network: &str) -> Result<bool, JsError> {
+    let n = parse_network(network)?;
+    Ok(match (chit_core::orchard_receiver(a, n), chit_core::orchard_receiver(b, n)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    })
+}
+
+/// Whether an address can receive Orchard/Ironwood payments that a chit can prove.
+#[wasm_bindgen]
+pub fn has_orchard_receiver(address: &str, network: &str) -> Result<bool, JsError> {
+    Ok(chit_core::orchard_receiver(address, parse_network(network)?).is_some())
 }
 
 #[derive(Serialize)]

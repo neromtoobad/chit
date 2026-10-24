@@ -1,0 +1,12 @@
+{
+  "name": "chit-zcash",
+  "version": "0.1.0",
+  "description": "Verify Zcash Orchard/Ironwood payment disclosures (chits) in Node or the browser. ZIP 311 output disclosures, official Zcash crates in WebAssembly.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "pkg/chit_wasm.js", "pkg/chit_wasm_bg.wasm", "README.md"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "github:neromtoobad/chit",
+  "keywords": ["zcash", "zip-311", "ironwood", "orchard", "payment-proof", "wasm"]
+}

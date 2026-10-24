@@ -42,6 +42,9 @@ use zcash_protocol::{
     TxId,
 };
 
+mod steps;
+pub use steps::{verify_with_steps, Report, Step};
+
 const VERSION: u8 = 1;
 const HRP_MAIN: &str = "zout";
 const HRP_TEST: &str = "zouttest";
@@ -269,7 +272,7 @@ pub fn parse_txid(s: &str) -> Result<TxId, Error> {
     Ok(TxId::from_bytes(bytes))
 }
 
-fn bundle_actions(tx: &Transaction, pool: Pool) -> Vec<&Action<orchard::primitives::redpallas::Signature<orchard::primitives::redpallas::SpendAuth>>> {
+pub(crate) fn bundle_actions(tx: &Transaction, pool: Pool) -> Vec<&Action<orchard::primitives::redpallas::Signature<orchard::primitives::redpallas::SpendAuth>>> {
     let bundle = match pool {
         Pool::Orchard => tx.orchard_bundle(),
         Pool::Ironwood => tx.ironwood_bundle(),
@@ -285,6 +288,24 @@ fn recipient_string(addr: Address, network: NetworkType) -> String {
 
 fn note_value(note: &orchard::Note) -> u64 {
     note.value().inner()
+}
+
+/// The Orchard-protocol receiver of a Unified Address, as raw bytes. Ironwood notes are
+/// paid to the same receiver (typecode 0x03, ZIP 258).
+pub fn orchard_receiver(address: &str, network: NetworkType) -> Option<[u8; 43]> {
+    match zcash_keys::address::Address::decode(&params(network), address.trim())? {
+        zcash_keys::address::Address::Unified(ua) => ua.orchard().map(|a| a.to_raw_address_bytes()),
+        _ => None,
+    }
+}
+
+/// Whether a verified disclosure paid `address` (compared by Orchard receiver, so a full
+/// Unified Address with Sapling and transparent receivers still matches).
+pub fn paid_to(v: &Verified, address: &str) -> bool {
+    match (orchard_receiver(&v.recipient, v.network), orchard_receiver(address, v.network)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Checks `disclosure` against the transaction it names.
