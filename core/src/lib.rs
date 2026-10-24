@@ -1,9 +1,14 @@
-//! Payment disclosures for Zcash Orchard and Ironwood outputs.
+//! Output disclosures for Zcash Orchard and Ironwood.
 //!
 //! A disclosure proves the contents of exactly one shielded output (value, recipient and
 //! memo) to anyone who holds it, without revealing a viewing key or anything else about
-//! the wallet. It fills the Orchard section that [ZIP 311] leaves as a TODO, and extends it
-//! to the Ironwood pool (ZIP 258).
+//! the wallet. It implements, for Orchard and the Ironwood pool (ZIP 258), the output
+//! part of [ZIP 311], which only specifies Sapling and leaves Orchard as a TODO.
+//!
+//! These are *unsigned* output disclosures: they prove what an output contains, not who
+//! is presenting the proof. ZIP 311 payment disclosures additionally prove spend
+//! authority; that part is out of scope here, and the encoding uses its own prefix so the
+//! two can never be confused.
 //!
 //! Two kinds exist:
 //! - **Outgoing** (the payer): the output's outgoing cipher key `ock`, derived from the
@@ -38,8 +43,8 @@ use zcash_protocol::{
 };
 
 const VERSION: u8 = 1;
-const HRP_MAIN: &str = "zpd";
-const HRP_TEST: &str = "zpdtest";
+const HRP_MAIN: &str = "zout";
+const HRP_TEST: &str = "zouttest";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -86,9 +91,9 @@ impl Pool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
-    /// Disclosed by the payer, with `ock`.
+    /// Made from the payer's outgoing viewing key: carries `ock`.
     Outgoing,
-    /// Disclosed by the payee, with `pk_d || esk`.
+    /// Made from the payee's incoming viewing key: carries `pk_d || esk`.
     Incoming,
 }
 

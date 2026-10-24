@@ -1,8 +1,8 @@
 //! `chit`: make and check Zcash Orchard/Ironwood payment disclosures.
 //!
-//!     chit check <zpd…> [--tx FILE]
+//!     chit check <zout…> [--tx FILE]
 //!     chit make  <txid | --tx FILE> --key-file FILE [--testnet]
-//!     chit inspect <zpd…>
+//!     chit inspect <zout…>
 //!
 //! The viewing key is read from a file (or `CHIT_UFVK`), never from the command line,
 //! so it does not end up in shell history or the process list.
@@ -12,10 +12,10 @@ use std::process::ExitCode;
 use zcash_protocol::consensus::NetworkType;
 
 const USAGE: &str = "usage:
-  chit check <zpd…> [--tx FILE]                         verify a disclosure
+  chit check <zout…> [--tx FILE]                         verify a disclosure
   chit make  (<txid> | --tx FILE) --key-file FILE [--testnet]
                                                         list outputs your viewing key can disclose
-  chit inspect <zpd…>                                   show which transaction a disclosure names
+  chit inspect <zout…>                                   show which transaction a disclosure names
 
   --tx FILE    raw transaction hex (\"-\" for stdin) instead of fetching it from Blockchair
   --json       machine-readable output

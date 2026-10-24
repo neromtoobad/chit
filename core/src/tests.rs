@@ -141,7 +141,7 @@ fn encoding_round_trips() {
         key: KeyMaterial::Ock([5; 32]),
     };
     let s = d.encode();
-    assert!(s.starts_with("zpd1"));
+    assert!(s.starts_with("zout1"));
     assert_eq!(Disclosure::decode(&s).unwrap(), d);
 
     let d2 = Disclosure {
@@ -150,7 +150,7 @@ fn encoding_round_trips() {
         ..d
     };
     let s2 = d2.encode();
-    assert!(s2.starts_with("zpdtest1"));
+    assert!(s2.starts_with("zouttest1"));
     assert_eq!(Disclosure::decode(&s2).unwrap(), d2);
 
     // One changed character breaks the checksum.

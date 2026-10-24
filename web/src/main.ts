@@ -109,7 +109,7 @@ interface SlipData {
 
 function slip({ v, tx }: SlipData, status: 'verified' | 'preview' | 'pasted'): HTMLElement {
   const who = v.direction === 'outgoing' ? 'Paid to' : 'Received at';
-  const by = v.direction === 'outgoing' ? 'Disclosed by the payer' : 'Disclosed by the payee';
+  const by = v.direction === 'outgoing' ? 'The payer’s viewing key' : 'The payee’s viewing key';
   const explorer = explorerUrl(v.network, v.txid);
   const copyBtn = h('button', { class: 'tiny', onclick: (e: Event) => copy(v.recipient, e.currentTarget as HTMLButtonElement) }, 'Copy');
   return h(
@@ -142,7 +142,7 @@ function slip({ v, tx }: SlipData, status: 'verified' | 'preview' | 'pasted'): H
       tx?.height
         ? h('dd', {}, `block ${tx.height.toLocaleString('en-US')}`, tx.time ? h('span', { class: 'muted' }, ` · ${tx.time}`) : '', tx.confirmations ? h('span', { class: 'muted' }, ` · ${tx.confirmations.toLocaleString('en-US')} conf.`) : '')
         : null,
-      h('dt', {}, 'Source'),
+      h('dt', {}, 'Made with'),
       h('dd', {}, by),
     ),
     h(
@@ -150,7 +150,7 @@ function slip({ v, tx }: SlipData, status: 'verified' | 'preview' | 'pasted'): H
       { class: 'slip-foot' },
       status === 'pasted'
         ? 'Checked against the transaction you pasted. Confirm on your own node that this txid is mined.'
-        : 'This proves one output of this transaction. It reveals no other payment, balance or key.',
+        : 'This proves what one output of this transaction contains. It reveals no other payment, balance or key, and it does not prove who is showing it to you.',
     ),
   );
 }
@@ -344,7 +344,7 @@ function showFound(out: HTMLElement, found: zpd.Found[], network: Network, txid:
 }
 
 function check() {
-  const input = h('textarea', { rows: '3', placeholder: 'Paste a chit code (zpd1…) or link', spellcheck: 'false' });
+  const input = h('textarea', { rows: '3', placeholder: 'Paste a chit code (zout1…) or link', spellcheck: 'false' });
   const err = h('div');
   shell(
     h(
@@ -354,9 +354,9 @@ function check() {
         onsubmit: (e: Event) => {
           e.preventDefault();
           const v = input.value.trim();
-          const m = v.match(/(zpd(?:test)?1[02-9ac-hj-np-z]+)/i);
+          const m = v.match(/(zout(?:test)?1[02-9ac-hj-np-z]+)/i);
           if (!m) {
-            err.replaceChildren(errorBox('That does not look like a chit.', 'A chit code starts with zpd1 (mainnet) or zpdtest1 (testnet).'));
+            err.replaceChildren(errorBox('That does not look like a chit.', 'A chit code starts with zout1 (mainnet) or zouttest1 (testnet).'));
             return;
           }
           location.hash = `#/v/${m[1].toLowerCase()}`;

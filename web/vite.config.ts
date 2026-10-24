@@ -23,5 +23,6 @@ const cspPlugin = (): Plugin => ({
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [cspPlugin()],
-  build: { target: 'es2022' },
+  // No data: URIs, so the font-src 'self' policy holds for every asset.
+  build: { target: 'es2022', assetsInlineLimit: 0 },
 });

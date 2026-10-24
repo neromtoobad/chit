@@ -116,7 +116,7 @@ td.no { color: var(--green); font-weight: 650; }
 .slip.void p { color: var(--ink-2); }
 
 .stamp {
-  position: absolute; right: 26px; top: 64px; width: 122px; height: 122px; border-radius: 50%;
+  position: absolute; right: 18px; top: 44px; width: 118px; height: 118px; border-radius: 50%;
   display: grid; place-content: center; text-align: center; transform: rotate(-12deg);
   border: 3px double currentColor; font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em;
   animation: stamp .42s cubic-bezier(.2, 1.6, .4, 1) both; mix-blend-mode: multiply;
