@@ -108,7 +108,7 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--green); 
 .stage-wait { color: var(--mute); font: 12px var(--mono); }
 .stage-link { display: block; width: min(520px, 100%); text-decoration: none; transform: perspective(1500px) rotateY(-13deg) rotateX(5deg) rotateZ(1deg); transition: transform .6s cubic-bezier(.2, .8, .2, 1); }
 .stage-link:hover { transform: perspective(1500px) rotateY(-4deg) rotateX(2deg); }
-.stage .log { position: absolute; left: -64px; bottom: -6px; width: 272px; }
+.stage .log { position: absolute; left: -20px; bottom: -6px; width: 272px; }
 .stage .log .checks li { font-size: 10.8px; padding: 2px 0; }
 .uses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 50px; }
 .use { display: block; text-decoration: none; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 26px; background: rgba(17, 22, 20, .7); transition: border-color .2s, transform .2s; }
@@ -231,6 +231,10 @@ pre.code.block .tiny { position: absolute; right: 10px; top: 9px; }
 /* developers */
 .dev h2 { font-size: 26px; }
 .embed-demo { margin-top: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .checks li, .seal { animation: none; opacity: 1; }
+}
 
 @media (max-width: 980px) {
   .hero { grid-template-columns: minmax(0, 1fr); }
