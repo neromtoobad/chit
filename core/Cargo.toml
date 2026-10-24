@@ -1,0 +1,22 @@
+[package]
+name = "chit-core"
+description = "Payment disclosures for Zcash Orchard and Ironwood outputs (ZIP 311)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orchard.workspace = true
+zcash_note_encryption.workspace = true
+zcash_primitives.workspace = true
+zcash_protocol.workspace = true
+zcash_keys.workspace = true
+bech32.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+orchard = { version = "0.16", features = ["circuit"] }
+rand = "0.10"
+zcash_primitives.workspace = true
+zcash_protocol.workspace = true
+hex.workspace = true

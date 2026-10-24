@@ -1,0 +1,13 @@
+[package]
+name = "chit-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "chit"
+path = "src/main.rs"
+
+[dependencies]
+chit-core = { path = "../core" }
+hex.workspace = true

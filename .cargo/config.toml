@@ -1,0 +1,6 @@
+# macOS `ar` cannot index wasm objects, so secp256k1-sys (pulled in by the transparent
+# code in zcash_primitives) links with missing symbols. Use the llvm-ar that rustup's
+# llvm-tools component ships. Run scripts/setup.sh once to install it.
+[env]
+AR_wasm32_unknown_unknown = { value = "scripts/llvm-ar", relative = true }
+CC_wasm32_unknown_unknown = "clang"

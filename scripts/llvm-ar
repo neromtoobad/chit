@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-ar" "$@"
