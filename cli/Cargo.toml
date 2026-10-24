@@ -1,5 +1,6 @@
 [package]
 name = "chit-cli"
+description = "Make and check Zcash Orchard/Ironwood payment disclosures from the command line"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,3 +12,6 @@ path = "src/main.rs"
 [dependencies]
 chit-core = { path = "../core" }
 hex.workspace = true
+zcash_protocol.workspace = true
+ureq = { version = "3", features = ["json"] }
+serde_json = "1"

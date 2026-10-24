@@ -23,6 +23,13 @@ fn memo(text: &str) -> [u8; 512] {
     m
 }
 
+/// ZIP 302: an empty memo is 0xF6 followed by zeros.
+fn empty_memo() -> [u8; 512] {
+    let mut m = [0u8; 512];
+    m[0] = 0xf6;
+    m
+}
+
 fn main() {
     let mut rng = rand::rng();
     let alice = FullViewingKey::from(&SpendingKey::from_bytes([0xa1; 32]).unwrap());
@@ -31,7 +38,7 @@ fn main() {
     let version = BundleVersion::ironwood_v3();
     let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), Anchor::empty_tree()).unwrap();
     b.add_output(Some(alice.to_ovk(Scope::External)), bob.address_at(0u32, Scope::External), NoteValue::from_raw(125_000_000), memo("ZECATHON prize · track 4")).unwrap();
-    b.add_output(Some(alice.to_ovk(Scope::Internal)), alice.address_at(0u32, Scope::Internal), NoteValue::from_raw(31_415_926), [0xf6; 512]).unwrap();
+    b.add_output(Some(alice.to_ovk(Scope::Internal)), alice.address_at(0u32, Scope::Internal), NoteValue::from_raw(31_415_926), empty_memo()).unwrap();
     let (bundle, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
 
     eprintln!("building proving key…");
