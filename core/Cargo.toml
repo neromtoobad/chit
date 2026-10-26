@@ -15,6 +15,11 @@ bech32.workspace = true
 hex.workspace = true
 chacha20poly1305 = { version = "0.11", default-features = false }
 subtle = "2"
+pasta_curves = { version = "0.6", features = ["alloc"] }
+ff = "0.14"
+group = "0.14"
+blake2b_simd = "1"
+zcash_address = "0.14"
 
 [dev-dependencies]
 orchard = { version = "0.16", features = ["circuit"] }

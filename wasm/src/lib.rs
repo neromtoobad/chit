@@ -193,3 +193,50 @@ pub fn scan(tx_hex: &str, ufvk: &str, network: &str) -> Result<String, JsError> 
 pub fn txid(tx_hex: &str) -> Result<String, JsError> {
     Ok(tx_from_hex(tx_hex)?.txid().to_string())
 }
+
+#[derive(Serialize)]
+struct BurnInfo {
+    address: String,
+    ufvk: String,
+    domain: &'static str,
+    ak: String,
+    nk: String,
+    rivk: String,
+}
+
+/// The Burn Book address, its published viewing key, and the three key parts, each
+/// re-derived here from public strings so a reader can check nobody holds a spending key.
+#[wasm_bindgen]
+pub fn burn_info(network: &str) -> Result<String, JsError> {
+    let n = parse_network(network)?;
+    let fvk = chit_core::burn::burn_fvk_bytes();
+    Ok(json(&BurnInfo {
+        address: chit_core::burn::burn_address(n),
+        ufvk: chit_core::burn::burn_ufvk(n),
+        domain: chit_core::burn::DOMAIN,
+        ak: hex::encode(&fvk[..32]),
+        nk: hex::encode(&fvk[32..64]),
+        rivk: hex::encode(&fvk[64..]),
+    }))
+}
+
+/// Every burn in a raw transaction: outputs to the Burn Book address, with value and memo.
+#[wasm_bindgen]
+pub fn burns(tx_hex: &str, network: &str) -> Result<String, JsError> {
+    let tx = tx_from_hex(tx_hex)?;
+    let found = chit_core::burn::burns_in(&tx, parse_network(network)?);
+    let out: Vec<FoundJson> = found
+        .iter()
+        .map(|f| FoundJson {
+            pool: f.pool.name(),
+            action: f.action,
+            direction: direction_name(f.direction),
+            change: f.change,
+            value_zat: f.value_zat,
+            recipient: f.recipient.clone(),
+            memo: (&f.memo).into(),
+            disclosure: f.disclosure.clone(),
+        })
+        .collect();
+    Ok(json(&serde_json::json!({ "txid": tx.txid().to_string(), "burns": out })))
+}

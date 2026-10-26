@@ -42,6 +42,7 @@ use zcash_protocol::{
     TxId,
 };
 
+pub mod burn;
 mod steps;
 pub use steps::{verify_with_steps, Report, Step};
 
@@ -369,6 +370,11 @@ pub fn scan(tx: &Transaction, ufvk: &str, network: NetworkType) -> Result<Vec<Fo
     let fvk = ufvk
         .orchard()
         .ok_or_else(|| Error::Key("this viewing key has no Orchard/Ironwood component".into()))?;
+    Ok(scan_fvk(tx, fvk, network))
+}
+
+/// [`scan`] with an Orchard full viewing key.
+pub fn scan_fvk(tx: &Transaction, fvk: &FullViewingKey, network: NetworkType) -> Vec<Found> {
     let txid = tx.txid();
     let mut found = Vec::new();
     for pool in [Pool::Orchard, Pool::Ironwood] {
@@ -398,7 +404,7 @@ pub fn scan(tx: &Transaction, ufvk: &str, network: NetworkType) -> Result<Vec<Fo
             }
         }
     }
-    Ok(found)
+    found
 }
 
 type Hit = (Direction, bool, orchard::Note, Address, [u8; 512], KeyMaterial);

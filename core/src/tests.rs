@@ -165,3 +165,45 @@ fn txid_display_order() {
     let id = "ae3e37dbffde0d00c80f294bdcf23118d3bc1fe053896cdcba402c86868baa87";
     assert_eq!(parse_txid(id).unwrap().to_string(), id);
 }
+
+mod burn {
+    use super::*;
+    use crate::burn::{burn_address, burn_fvk, burn_fvk_bytes, burn_ufvk, DOMAIN};
+    use group::{Curve, GroupEncoding};
+    use pasta_curves::{arithmetic::CurveExt, pallas};
+
+    #[test]
+    fn address_is_deterministic_and_valid() {
+        let a = burn_address(NetworkType::Main);
+        assert!(a.starts_with("u1"));
+        assert_eq!(a, burn_address(NetworkType::Main));
+        assert_eq!(crate::orchard_receiver(&a, NetworkType::Main).unwrap(), burn_fvk().address_at(0u32, Scope::External).to_raw_address_bytes());
+        // The published UFVK decodes to exactly this key.
+        let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&zcash_protocol::consensus::Network::MainNetwork, &burn_ufvk(NetworkType::Main)).unwrap();
+        assert_eq!(ufvk.orchard().unwrap().to_bytes(), burn_fvk_bytes());
+    }
+
+    #[test]
+    fn ak_is_a_hash_to_curve_point_nobody_chose() {
+        // Recompute independently: ak must be ±GroupHash(DOMAIN, "ak") with positive y.
+        let p = pallas::Point::hash_to_curve(DOMAIN)(b"ak");
+        let ak: [u8; 32] = burn_fvk_bytes()[..32].try_into().unwrap();
+        assert!(ak == p.to_affine().to_bytes() || ak == (-p).to_affine().to_bytes());
+        assert_eq!(ak[31] & 0x80, 0);
+        // And it is not the base point or identity.
+        assert_ne!(ak, [0u8; 32]);
+    }
+
+    #[test]
+    fn a_payment_to_the_burn_address_is_publicly_readable() {
+        let alice = fvk(1);
+        let version = BundleVersion::ironwood_v3();
+        let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), Anchor::empty_tree()).unwrap();
+        b.add_output(Some(alice.to_ovk(Scope::External)), burn_fvk().address_at(0u32, Scope::External), NoteValue::from_raw(1_000_000), memo("bb:gm, from the void")).unwrap();
+        let (bundle, _) = b.build::<i64>(rand::rng()).unwrap().unwrap();
+        let hits: Vec<_> = bundle.actions().iter().filter_map(|a| scan_action::<IronwoodVersion>(a, &burn_fvk())).collect();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].2.value().inner(), 1_000_000);
+        assert_eq!(MemoView::from_bytes(&hits[0].4), MemoView::Text("bb:gm, from the void".into()));
+    }
+}

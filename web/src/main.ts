@@ -9,6 +9,7 @@ import { certificate, checklog, copy, h, memoNode, short, zec, type Seal, type S
 import { checkInvoice, decodeRequest, encodeRequest, memoFor, parseZec, zecString, zip321, type PayRequest } from './request';
 import { specimen } from './specimen';
 import * as zpd from './zpd';
+import * as burnbook from './burnbook';
 
 const app = document.getElementById('app')!;
 
@@ -23,11 +24,23 @@ type Route =
   | { view: 'request'; request: PayRequest; raw: string }
   | { view: 'newLedger' }
   | { view: 'ledger'; chits: string[]; title: string; hide: boolean }
-  | { view: 'dev' };
+  | { view: 'dev' }
+  | { view: 'burn'; tab: 'top' | 'new' }
+  | { view: 'burnNew'; preset: string }
+  | { view: 'burnPost'; id: string }
+  | { view: 'burnClaim' }
+  | { view: 'burnProof' };
 
 function route(): Route {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   const [head, a, b, c] = parts;
+  if (head === 'burn') {
+    if (a === 'new') return { view: 'burnNew', preset: b ?? '' };
+    if (a === 'p' && b) return { view: 'burnPost', id: b };
+    if (a === 'claim') return { view: 'burnClaim' };
+    if (a === 'proof') return { view: 'burnProof' };
+    return { view: 'burn', tab: a === 'new-posts' ? 'new' : 'top' };
+  }
   if (head === 'make') return { view: 'make' };
   if (head === 'check') return { view: 'check' };
   if (head === 'dev') return { view: 'dev' };
@@ -61,6 +74,7 @@ function shell(...kids: Node[]) {
       h(
         'nav',
         {},
+        tab('#/burn', 'Burn Book', r.startsWith('burn')),
         tab('#/make', 'Make', r === 'make'),
         tab('#/check', 'Check', r === 'check' || r === 'verify'),
         tab('#/request', 'Pay & prove', r === 'newRequest' || r === 'request'),
@@ -152,6 +166,7 @@ async function home() {
     h(
       'section',
       { class: 'uses' },
+      use('Burn Book', 'Say anything, burn ZEC to say it, nobody knows who. Posts are payments to an address nobody can spend from; the most burned rise to the top.', '#/burn', 'Open the book'),
       use('Pay & prove', 'Send a customer a payment request. When they pay, their chit is checked against it: right recipient, full amount, invoice number in the memo.', '#/request', 'Make a request'),
       use('Proof of payouts', 'Paying winners, grantees or staff from a shielded wallet? Publish one ledger page that proves every payment and the total, without opening the wallet.', '#/ledger', 'Build a ledger'),
       use('For developers', 'The verifier is a Rust crate compiled to WebAssembly. Use it from npm, the command line, or drop a <chit-verify> badge onto any page.', '#/dev', 'Developer kit'),
@@ -728,6 +743,11 @@ function render() {
   else if (r.view === 'newLedger') newLedger();
   else if (r.view === 'ledger') ledgerView(r.chits, r.title, r.hide);
   else if (r.view === 'dev') dev();
+  else if (r.view === 'burn') burnbook.wallView(shell, r.tab);
+  else if (r.view === 'burnNew') burnbook.composeView(shell, r.preset);
+  else if (r.view === 'burnPost') burnbook.postView(shell, r.id);
+  else if (r.view === 'burnClaim') burnbook.claimView(shell);
+  else if (r.view === 'burnProof') burnbook.proofView(shell);
   else home();
   window.scrollTo(0, 0);
 }
