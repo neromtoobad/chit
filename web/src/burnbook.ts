@@ -6,10 +6,14 @@
 // and checks every post in their own browser; the burner stays anonymous.
 //
 // Memo grammar (UTF-8 text, at most 512 bytes):
-//   re:<ref> text      a reply to the post <ref>
-//   +<ref> text        a boost: more ZEC behind the post <ref>
-//   anything else      a post
+//   re:<ref> text            a reply to the post <ref>
+//   +<ref> text              a boost: more ZEC behind the post <ref>
+//   poll:Question|A|B[|C|D]  a poll; people vote by burning
+//   vote:<ref>:<k> [note]    a vote for option k (0-based) of the poll <ref>
+//   seal:…                   a time-locked prediction (see seal-codec.mjs)
+//   anything else            a post
 // where <ref> is the first 10 hex characters of a txid, a dot, and the output index.
+// Any of these may end with a mask signature line (see masks.ts).
 
 import qrcode from 'qrcode-generator';
 import { ChainError, fetchTx } from './chain';
@@ -17,6 +21,8 @@ import { certificate, checklog, copy, h, short, sigil, zec } from './cert';
 import { parseZec, zecString } from './request';
 import * as zpd from './zpd';
 import { isSealed, opensAt, seal, unseal } from './seal-codec.mjs';
+import { dropMask, importMask, maskName, myMask, newMask, sign, SIG_BYTES, verifySigned } from './masks';
+import { downloadCard, tweetIntent } from './sharecard';
 import * as wasm from '../pkg/chit_wasm.js';
 
 export interface BurnInfo {
@@ -34,8 +40,14 @@ export interface Burn {
   action: number;
   value: number;
   text: string;
-  kind: 'post' | 'reply' | 'boost' | 'sealed';
+  kind: 'post' | 'reply' | 'boost' | 'sealed' | 'poll' | 'vote';
   target: string | null;
+  /** Public key of the signing mask, if the memo carries a valid signature. */
+  mask: string | null;
+  /** For votes: the option index. */
+  option: number | null;
+  /** For polls: the question and options. */
+  poll: { question: string; options: string[] } | null;
   chit: string;
   height: number | null;
   time: string | null;
@@ -47,6 +59,8 @@ export interface Post extends Burn {
   total: number;
   replies: Burn[];
   boosts: Burn[];
+  /** For polls: ZEC burned and votes per option. */
+  tally: { zat: number; votes: number }[] | null;
 }
 
 const load = zpd.load;
@@ -58,13 +72,21 @@ export async function burnInfo(): Promise<BurnInfo> {
 
 const MEMO_LIMIT = 512;
 
-function parseMemo(text: string): Pick<Burn, 'kind' | 'target' | 'text'> {
-  if (isSealed(text)) return { kind: 'sealed', target: null, text };
+type Parsed = Pick<Burn, 'kind' | 'target' | 'text' | 'mask' | 'option' | 'poll'>;
+
+function parseMemo(memo: string): Parsed {
+  const { body: text, mask } = verifySigned(memo);
+  const base = { mask, option: null, poll: null, target: null };
+  if (isSealed(text)) return { ...base, kind: 'sealed', text };
   const re = text.match(/^re:([0-9a-f]{10}\.\d{1,3})\s?([\s\S]*)$/);
-  if (re) return { kind: 'reply', target: re[1], text: re[2] };
+  if (re) return { ...base, kind: 'reply', target: re[1], text: re[2] };
   const boost = text.match(/^\+([0-9a-f]{10}\.\d{1,3})\s?([\s\S]*)$/);
-  if (boost) return { kind: 'boost', target: boost[1], text: boost[2] };
-  return { kind: 'post', target: null, text };
+  if (boost) return { ...base, kind: 'boost', target: boost[1], text: boost[2] };
+  const vote = text.match(/^vote:([0-9a-f]{10}\.\d{1,3}):(\d)\s?([\s\S]*)$/);
+  if (vote) return { ...base, kind: 'vote', target: vote[1], option: Number(vote[2]), text: vote[3] };
+  const poll = text.match(/^poll:([^|\n]{1,200})((?:\|[^|\n]{1,60}){2,4})$/);
+  if (poll) return { ...base, kind: 'poll', text: poll[1], poll: { question: poll[1], options: poll[2].slice(1).split('|') } };
+  return { ...base, kind: 'post', text };
 }
 
 /** Decrypts every burn in a raw transaction with the public Burn Book key. */
@@ -106,8 +128,15 @@ async function indexTxids(): Promise<string[]> {
   return [...new Set([...list, ...claimed()])];
 }
 
+export interface MaskStat {
+  pub: string;
+  burned: number;
+  count: number;
+}
+
 export interface Wall {
   posts: Post[];
+  masks: MaskStat[];
   burned: number; // mainnet only
   count: number;
   biggest: number;
@@ -145,7 +174,8 @@ async function buildWall(): Promise<Wall> {
   }
   const byId = new Map(all.map((b) => [b.id, b]));
   const posts = new Map<string, Post>();
-  for (const b of all) if (b.kind === 'post' || b.kind === 'sealed' || !b.target || !byId.has(b.target)) posts.set(b.id, { ...b, boosted: 0, total: b.value, replies: [], boosts: [] });
+  const top = (b: Burn) => b.kind === 'post' || b.kind === 'sealed' || b.kind === 'poll' || !b.target || !byId.has(b.target);
+  for (const b of all) if (top(b)) posts.set(b.id, { ...b, boosted: 0, total: b.value, replies: [], boosts: [], tally: b.poll ? b.poll.options.map(() => ({ zat: 0, votes: 0 })) : null });
   for (const b of all) {
     const p = b.target ? posts.get(b.target) : undefined;
     if (!p || b.id === p.id) continue;
@@ -155,10 +185,24 @@ async function buildWall(): Promise<Wall> {
       p.boosted += b.value;
       p.total += b.value;
     }
+    if (b.kind === 'vote' && p.tally && b.option !== null && b.option < p.tally.length) {
+      p.tally[b.option].zat += b.value;
+      p.tally[b.option].votes += 1;
+      p.total += b.value;
+    }
+  }
+  const masks = new Map<string, MaskStat>();
+  for (const b of all) {
+    if (!b.mask) continue;
+    const m = masks.get(b.mask) ?? { pub: b.mask, burned: 0, count: 0 };
+    m.burned += b.value;
+    m.count += 1;
+    masks.set(b.mask, m);
   }
   const realBurns = live;
   return {
     posts: [...posts.values()],
+    masks: [...masks.values()].sort((a, b) => b.burned - a.burned),
     burned: realBurns.reduce((a, b) => a + b.value, 0),
     count: realBurns.length,
     biggest: realBurns.reduce((a, b) => Math.max(a, b.value), 0),
@@ -210,12 +254,41 @@ function sealedText(post: Burn): HTMLElement {
 
 type Shell = (...kids: Node[]) => void;
 
-function ember(post: Post, onOpen: () => void, rank?: number): HTMLElement {
+function pollBody(post: Post, voting: boolean): HTMLElement {
+  const tally = post.tally ?? [];
+  const sum = tally.reduce((a, t) => a + t.zat, 0);
+  return h(
+    'div',
+    { class: 'poll' },
+    h('p', { class: 'ash-text' }, post.poll!.question),
+    ...post.poll!.options.map((opt, k) => {
+      const t = tally[k] ?? { zat: 0, votes: 0 };
+      const pct = sum ? Math.round((t.zat / sum) * 100) : 0;
+      return h(
+        voting ? 'a' : 'div',
+        { class: 'poll-opt', ...(voting ? { href: `#/burn/new/vote:${post.id}:${k}` } : {}) },
+        h('span', { class: 'poll-bar', style: `width:${pct}%` }),
+        h('span', { class: 'poll-label' }, opt),
+        h('span', { class: 'poll-num' }, `${pct}% · ${zecString(t.zat)} ZEC · ${t.votes} vote${t.votes === 1 ? '' : 's'}`),
+      );
+    }),
+    h('p', { class: 'hint' }, voting ? 'Vote by burning ZEC on an option. Weighted by ZEC destroyed; every voter is anonymous.' : `${tally.reduce((a, t) => a + t.votes, 0)} votes · weighted by ZEC burned`),
+  );
+}
+
+function ember(post: Post, onOpen: () => void, rank?: number, voting = false): HTMLElement {
   const card = h(
     'article',
     { class: `ash${post.specimen ? ' is-specimen' : ''}`, tabindex: '0', onclick: onOpen, onkeydown: (e: Event) => (e as KeyboardEvent).key === 'Enter' && onOpen() },
-    h('div', { class: 'ash-head' }, rank ? h('span', { class: 'rank' }, `#${rank}`) : null, h('span', { class: 'ash-sigil' }, sigil(`${post.txid}:${post.action}`)), h('span', { class: 'kicker' }, post.specimen ? 'Specimen · not on chain' : post.height ? `Block ${post.height.toLocaleString('en-US')}` : 'Pending'), post.kind !== 'post' ? h('span', { class: 'tag' }, post.kind) : null),
-    post.kind === 'sealed' ? sealedText(post) : h('p', { class: 'ash-text' }, post.text || h('span', { class: 'muted' }, '(no message)')),
+    h(
+      'div',
+      { class: 'ash-head' },
+      rank ? h('span', { class: 'rank' }, `#${rank}`) : null,
+      h('span', { class: 'ash-sigil' }, sigil(post.mask ?? `${post.txid}:${post.action}`)),
+      h('span', { class: 'who' }, post.mask ? h('a', { class: 'mask-name', href: `#/burn/masks`, onclick: (e: Event) => e.stopPropagation() }, `🎭 ${maskName(post.mask)}`) : h('span', { class: 'kicker' }, 'anonymous'), h('span', { class: 'kicker' }, post.specimen ? 'Specimen · not on chain' : post.height ? `Block ${post.height.toLocaleString('en-US')}` : 'Pending')),
+      post.kind !== 'post' ? h('span', { class: 'tag' }, post.kind) : null,
+    ),
+    post.kind === 'sealed' ? sealedText(post) : post.kind === 'poll' ? pollBody(post, voting) : h('p', { class: 'ash-text' }, post.text || h('span', { class: 'muted' }, '(no message)')),
     h(
       'div',
       { class: 'ash-foot' },
@@ -227,17 +300,17 @@ function ember(post: Post, onOpen: () => void, rank?: number): HTMLElement {
   return card;
 }
 
-export async function wallView(shell: Shell, tab: 'top' | 'new' | 'sealed') {
+export async function wallView(shell: Shell, tab: 'top' | 'new' | 'sealed' | 'polls') {
   const grid = h('div', { class: 'wall' }, h('p', { class: 'muted' }, 'Reading the ashes…'));
   const counter = h('div', { class: 'burn-stats' });
   shell(
     h(
       'section',
       { class: 'burn-hero' },
-      h('div', {}, h('p', { class: 'eyebrow ember' }, 'Burn Book · Zcash'), h('h1', {}, 'Say anything.', h('br'), h('em', { class: 'ember' }, 'Burn ZEC to say it.'), h('br'), 'Nobody knows who.'), h('p', { class: 'lede' }, 'Every post is a shielded payment to an address nobody can ever spend from. The message rides in the encrypted memo; the key to read it is public, the key to spend it does not exist. Burn more, rise higher. It cannot be deleted, faked, or traced to you.'), h('div', { class: 'row' }, h('a', { class: 'btn fire', href: '#/burn/new' }, 'Write in the book'), h('a', { class: 'btn', href: '#/burn/proof' }, 'Prove the black hole'))),
+      h('div', {}, h('p', { class: 'eyebrow ember' }, 'Burn Book · Zcash'), h('h1', {}, 'Say anything.', h('br'), h('em', { class: 'ember' }, 'Burn ZEC to say it.'), h('br'), 'Nobody knows who.'), h('p', { class: 'lede' }, 'Every post is a shielded payment to an address nobody can ever spend from. The message rides in the encrypted memo; the key to read it is public, the key to spend it does not exist. Burn more, rise higher. It cannot be deleted, faked, or traced to you.'), h('div', { class: 'row' }, h('a', { class: 'btn fire', href: '#/burn/new' }, 'Write in the book'), h('a', { class: 'btn', href: '#/burn/new/poll' }, 'Start a poll'), h('a', { class: 'btn', href: '#/burn/proof' }, 'Prove the black hole'))),
       counter,
     ),
-    h('nav', { class: 'tabs' }, h('a', { href: '#/burn', class: tab === 'top' ? 'on' : '' }, 'Most burned'), h('a', { href: '#/burn/new-posts', class: tab === 'new' ? 'on' : '' }, 'Newest'), h('a', { href: '#/burn/called-it', class: tab === 'sealed' ? 'on' : '' }, '🔒 Called it'), h('a', { href: '#/burn/claim' }, 'Claim a burn')),
+    h('nav', { class: 'tabs' }, h('a', { href: '#/burn', class: tab === 'top' ? 'on' : '' }, 'Most burned'), h('a', { href: '#/burn/new-posts', class: tab === 'new' ? 'on' : '' }, 'Newest'), h('a', { href: '#/burn/called-it', class: tab === 'sealed' ? 'on' : '' }, '🔒 Called it'), h('a', { href: '#/burn/polls', class: tab === 'polls' ? 'on' : '' }, '🗳 Polls'), h('a', { href: '#/burn/masks' }, '🎭 Masks'), h('a', { href: '#/burn/claim' }, 'Claim a burn')),
     grid,
   );
   try {
@@ -247,7 +320,7 @@ export async function wallView(shell: Shell, tab: 'top' | 'new' | 'sealed') {
       h('div', { class: 'stat-row' }, h('div', {}, h('b', {}, String(w.count)), h('span', {}, 'burns')), h('div', {}, h('b', {}, zecString(w.biggest)), h('span', {}, 'biggest'))),
     );
     if (w.specimen) counter.append(h('p', { class: 'hint' }, 'No mainnet burns claimed yet. Below is the specimen wall: real proven transactions, never mined, not counted. Be the first real one.'));
-    const posts = [...w.posts].filter((p) => (tab === 'sealed' ? p.kind === 'sealed' : p.kind === 'post' || p.kind === 'sealed' || !w.posts.some((q) => q.id === p.target)));
+    const posts = [...w.posts].filter((p) => (tab === 'sealed' ? p.kind === 'sealed' : tab === 'polls' ? p.kind === 'poll' : p.kind !== 'vote'));
     posts.sort(tab === 'top' ? (a, b) => b.total - a.total : (a, b) => (b.height ?? 0) - (a.height ?? 0) || b.id.localeCompare(a.id));
     grid.replaceChildren(...posts.map((p, i) => ember(p, () => (location.hash = `#/burn/p/${p.id}`), tab === 'top' ? i + 1 : undefined)));
   } catch (e) {
@@ -259,7 +332,7 @@ export async function postView(shell: Shell, id: string) {
   const body = h('div', { class: 'pair' }, h('p', { class: 'muted' }, 'Opening…'));
   shell(h('div', { class: 'wide' }, h('a', { class: 'link', href: '#/burn' }, '← Burn Book'), body));
   const w = await wall();
-  const loose = (b: Burn): Post => ({ ...b, boosted: 0, total: b.value, replies: [], boosts: [] });
+  const loose = (b: Burn): Post => ({ ...b, boosted: 0, total: b.value, replies: [], boosts: [], tally: b.poll ? b.poll.options.map(() => ({ zat: 0, votes: 0 })) : null });
   let post: Post | undefined;
   const full = id.match(/^([0-9a-f]{64})\.(\d{1,3})$/);
   if (full) {
@@ -297,16 +370,31 @@ export async function postView(shell: Shell, id: string) {
     { id: 'blackhole', label: 'Recipient is the Burn Book address (no spend key exists)', ok: v ? await zpd.sameReceiver(v.recipient, info.address, 'main') : null },
     { id: 'mined', label: post.specimen ? 'Specimen: never mined, by design' : `Mined in block ${post.height?.toLocaleString('en-US')}`, ok: post.specimen ? null : !!post.height },
   ];
+  const shareLink = post.specimen ? location.href : `${location.origin}${location.pathname}#/burn/tx/${post.txid}.${post.action}`;
+  const card = {
+    text: post.kind === 'poll' ? `${post.text}\n${post.poll!.options.map((o, k) => `${['A', 'B', 'C', 'D'][k]}. ${o}`).join('   ')}` : post.kind === 'sealed' ? '🔒 A sealed prediction. Nobody can read it until its time comes.' : post.text || '(boost)',
+    zat: post.total,
+    mask: post.mask ? maskName(post.mask) : null,
+    seed: post.mask ?? `${post.txid}:${post.action}`,
+    specimen: post.specimen,
+    kicker: post.kind === 'poll' ? 'anonymous poll' : post.kind === 'sealed' ? 'called it' : 'anonymous post',
+  };
   const thread = h(
     'section',
     { class: 'thread' },
     h('h3', {}, `${post.replies.length} repl${post.replies.length === 1 ? 'y' : 'ies'} · ${post.boosts.length} boost${post.boosts.length === 1 ? '' : 's'}`),
     ...post.boosts.map((b) => h('div', { class: 'reply boost' }, h('span', { class: 'flame' }, '🔥 +', zec(b.value, 'amount sm')), h('span', {}, b.text || 'boosted'))),
     ...post.replies.map((b) => h('div', { class: 'reply' }, h('span', { class: 'flame' }, '🔥 ', zec(b.value, 'amount sm')), h('span', {}, b.text))),
-    h('div', { class: 'row' }, h('a', { class: 'btn fire small', href: `#/burn/new/+${post.id}` }, 'Boost this'), h('a', { class: 'btn small', href: `#/burn/new/re:${post.id}` }, 'Reply'), h('button', { class: 'btn small', type: 'button', onclick: (e: Event) => copy(location.href, e.currentTarget as HTMLElement) }, 'Copy link')),
+    h('div', { class: 'row' }, h('a', { class: 'btn fire small', href: `#/burn/new/+${post.id}` }, 'Boost this'), h('a', { class: 'btn small', href: `#/burn/new/re:${post.id}` }, 'Reply'), h('button', { class: 'btn small', type: 'button', onclick: (e: Event) => copy(shareLink, e.currentTarget as HTMLElement) }, 'Copy link')),
+    h(
+      'div',
+      { class: 'row' },
+      h('button', { class: 'btn small', type: 'button', onclick: () => downloadCard(card, `burnbook-${post.id}.png`) }, '⬇ Share card'),
+      h('a', { class: 'btn small', href: tweetIntent(post.kind === 'poll' ? `Anonymous poll, votes weighted by ZEC burned: “${post.text}”` : `Someone burned ${zecString(post.total)} ZEC to say this. Nobody knows who.`, shareLink), target: '_blank', rel: 'noreferrer' }, 'Post on X ↗'),
+    ),
   );
   body.replaceChildren(
-    h('div', {}, ember(post, () => {}), thread, v ? h('details', { class: 'offline' }, h('summary', {}, 'The underlying certificate'), certificate(v, { kind: 'valid', source: post.specimen ? 'specimen' : 'chain' }, { height: post.height, chit: post.chit, specimen: post.specimen })) : null),
+    h('div', {}, ember(post, () => {}, undefined, post.kind === 'poll'), thread, v ? h('details', { class: 'offline' }, h('summary', {}, 'The underlying certificate'), certificate(v, { kind: 'valid', source: post.specimen ? 'specimen' : 'chain' }, { height: post.height, chit: post.chit, specimen: post.specimen })) : null),
     h('div', { class: 'side' }, checklog('Verified in your browser', steps)),
   );
 }
@@ -314,23 +402,39 @@ export async function postView(shell: Shell, id: string) {
 export async function composeView(shell: Shell, preset: string) {
   const info = await burnInfo();
   const target = preset.match(/^(re:|\+)([0-9a-f]{10}\.\d{1,3})$/);
-  const mode: 'post' | 'reply' | 'boost' = target ? (target[1] === '+' ? 'boost' : 'reply') : 'post';
-  const prefix = target ? `${target[1]}${target[2]}${mode === 'reply' ? ' ' : ' '}` : '';
-  const text = h('textarea', { rows: '5', placeholder: mode === 'boost' ? 'Optional: why you are boosting' : 'Say it. It will outlive you.', maxlength: '500' });
-  const amount = h('input', { value: mode === 'boost' ? '0.01' : '0.001', inputmode: 'decimal' });
+  const vote = preset.match(/^vote:([0-9a-f]{10}\.\d{1,3}):(\d)$/);
+  type Mode = 'post' | 'reply' | 'boost' | 'poll' | 'vote';
+  const mode: Mode = vote ? 'vote' : preset === 'poll' ? 'poll' : target ? (target[1] === '+' ? 'boost' : 'reply') : 'post';
+  const prefix = target ? `${target[1]}${target[2]} ` : vote ? `vote:${vote[1]}:${vote[2]} ` : '';
+  let voteLabel = '';
+  if (vote) {
+    const p = (await wall()).posts.find((x) => x.id === vote[1]);
+    voteLabel = p?.poll?.options[Number(vote[2])] ?? `option ${Number(vote[2]) + 1}`;
+  }
+  const text = h('textarea', { rows: mode === 'poll' ? '2' : '5', placeholder: { post: 'Say it. It will outlive you.', reply: 'Answer, anonymously.', boost: 'Optional: why you are boosting', vote: 'Optional: a note with your vote', poll: 'The question' }[mode], maxlength: '500' });
+  const options = [0, 1, 2, 3].map((k) => h('input', { placeholder: k < 2 ? `Option ${'ABCD'[k]}` : `Option ${'ABCD'[k]} (optional)`, maxlength: '60' }));
+  const optWrap = h('div', { class: mode === 'poll' ? 'poll-inputs' : 'hidden' }, ...options);
+  const amount = h('input', { value: mode === 'boost' || mode === 'vote' ? '0.01' : '0.001', inputmode: 'decimal' });
   const count = h('span', { class: 'hint' });
   const sealBox = h('input', { type: 'checkbox' });
   const sealAt = h('input', { type: 'datetime-local', value: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 16) });
-  const sealWrap = h('div', { class: mode === 'post' ? 'seal-opt' : 'hidden' }, h('label', { class: 'inline' }, sealBox, '🔒 Seal it: nobody can read it until'), sealAt, h('p', { class: 'hint' }, 'Time-lock encrypted to a drand round. It shows as sealed on the wall, opens by itself at that time, and the burn’s block proves you said it first. Up to about 180 characters.'));
+  const sealWrap = h('div', { class: mode === 'post' ? 'seal-opt' : 'hidden' }, h('label', { class: 'inline' }, sealBox, '🔒 Seal it: nobody can read it until'), sealAt, h('p', { class: 'hint' }, 'Time-lock encrypted to a drand round. It shows as sealed on the wall, opens by itself at that time, and the burn’s block proves you said it first.'));
+  const mask = myMask();
+  const signBox = h('input', { type: 'checkbox', ...(mask ? { checked: true } : { disabled: true }) });
+  const signWrap = h('div', { class: 'seal-opt' }, h('label', { class: 'inline' }, signBox, mask ? `🎭 Sign as ${maskName(mask.pub)}` : '🎭 Sign with a mask (you have none yet)'), h('p', { class: 'hint' }, mask ? 'Adds a signature only your browser can make: the post counts toward your mask’s reputation, and still nothing links it to your wallet.' : h('span', {}, h('a', { href: '#/burn/masks' }, 'Create a mask'), ' to build a pseudonymous reputation. Optional: unsigned posts are fully anonymous.')));
   const out = h('div');
+  const body = () => (mode === 'poll' ? `poll:${text.value.trim().replace(/[|\n]/g, ' ')}|${options.map((o) => o.value.trim().replace(/[|\n]/g, ' ')).filter(Boolean).join('|')}` : prefix + text.value.trim());
   const bytes = () => {
-    const n = new TextEncoder().encode(prefix + text.value).length;
-    return sealBox.checked ? 5 + Math.ceil((197 + n) / 3) * 4 : n;
+    const n = new TextEncoder().encode(body()).length;
+    const sealed = sealBox.checked ? 5 + Math.ceil((197 + n) / 3) * 4 : n;
+    return sealed + (signBox.checked ? SIG_BYTES : 0);
   };
-  const upd = () => (count.textContent = `${bytes()}/${MEMO_LIMIT} bytes in the memo${sealBox.checked ? ' (sealed)' : ''}`);
+  const upd = () => (count.textContent = `${bytes()}/${MEMO_LIMIT} bytes in the memo${sealBox.checked ? ' · sealed' : ''}${signBox.checked ? ' · signed' : ''}`);
+  for (const el of [text, ...options]) el.addEventListener('input', upd);
   sealBox.addEventListener('change', upd);
-  text.addEventListener('input', upd);
+  signBox.addEventListener('change', upd);
   upd();
+  const err = (m: string) => out.replaceChildren(h('div', { class: 'error' }, h('b', {}, m)));
   shell(
     h(
       'div',
@@ -342,20 +446,22 @@ export async function composeView(shell: Shell, preset: string) {
           onsubmit: async (e: Event) => {
             e.preventDefault();
             const zat = parseZec(amount.value);
-            let memo = prefix + text.value.trim();
-            if (!zat || zat < 100_000) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Burn at least 0.001 ZEC.')));
-            if (mode !== 'boost' && !text.value.trim()) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Write something to burn.')));
-            if (bytes() > MEMO_LIMIT) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Too long for a Zcash memo (512 bytes).')));
+            if (!zat || zat < 100_000) return err('Burn at least 0.001 ZEC.');
+            if ((mode === 'post' || mode === 'reply' || mode === 'poll') && !text.value.trim()) return err(mode === 'poll' ? 'Ask a question.' : 'Write something to burn.');
+            if (mode === 'poll' && options.filter((o) => o.value.trim()).length < 2) return err('A poll needs at least two options.');
+            if (bytes() > MEMO_LIMIT) return err('Too long for a Zcash memo (512 bytes).');
+            let memo = body();
             if (sealBox.checked) {
               const when = new Date(sealAt.value + 'Z');
-              if (!(when.getTime() > Date.now() + 60_000)) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Pick a time in the future to open it.')));
+              if (!(when.getTime() > Date.now() + 60_000)) return err('Pick a time in the future to open it.');
               out.replaceChildren(h('p', { class: 'muted' }, 'Sealing with drand…'));
               try {
                 memo = await seal(text.value.trim(), when);
-              } catch (err) {
-                return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Could not reach drand to seal it.'), h('p', {}, err instanceof Error ? err.message : String(err))));
+              } catch (er) {
+                return err(`Could not reach drand to seal it: ${er instanceof Error ? er.message : er}`);
               }
             }
+            if (signBox.checked && mask) memo = sign(memo, mask);
             const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(memo))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
             const uri = `zcash:${info.address}?amount=${zecString(zat)}&memo=${b64}`;
             const q = qrcode(0, 'L');
@@ -373,20 +479,68 @@ export async function composeView(shell: Shell, preset: string) {
             );
           },
         },
-        h('p', { class: 'eyebrow ember' }, mode === 'post' ? 'Write in the book' : mode === 'boost' ? `Boost ${target![2]}` : `Reply to ${target![2]}`),
-        h('h1', {}, mode === 'post' ? 'What is worth burning for?' : mode === 'boost' ? 'Put fire behind it' : 'Answer, anonymously'),
-        h('p', { class: 'muted' }, 'Your message goes in the encrypted memo of a payment to an address nobody can spend from. Everyone can read it. Nobody can tell it was you, as long as you burn from a shielded balance.'),
-        h('label', {}, mode === 'boost' ? 'Note (optional)' : 'Message'),
+        h('p', { class: 'eyebrow ember' }, { post: 'Write in the book', reply: `Reply to ${target?.[2]}`, boost: `Boost ${target?.[2]}`, poll: 'Start a poll', vote: `Vote in ${vote?.[1]}` }[mode]),
+        h('h1', {}, { post: 'What is worth burning for?', reply: 'Answer, anonymously', boost: 'Put fire behind it', poll: 'Ask the void', vote: `Burn for “${voteLabel}”` }[mode]),
+        h('p', { class: 'muted' }, mode === 'poll' ? 'A poll where every vote is a burn: results are weighted by ZEC destroyed, and nobody knows who voted. Starting it costs a burn too.' : 'Your message goes in the encrypted memo of a payment to an address nobody can spend from. Everyone can read it. Nobody can tell it was you, as long as you burn from a shielded balance.'),
+        h('label', {}, { post: 'Message', reply: 'Reply', boost: 'Note (optional)', poll: 'Question', vote: 'Note (optional)' }[mode]),
         text,
+        optWrap,
         count,
         sealWrap,
-        h('label', {}, 'ZEC to burn'),
+        signWrap,
+        h('label', {}, mode === 'vote' ? 'ZEC to burn on this option' : 'ZEC to burn'),
         amount,
-        h('p', { class: 'hint' }, 'Gone forever. Posts rank by total ZEC burned, including boosts from others.'),
+        h('p', { class: 'hint' }, 'Gone forever. Posts rank by total ZEC burned, including boosts and votes from others.'),
         h('div', { class: 'row' }, h('button', { class: 'btn fire', type: 'submit' }, 'Make the burn')),
       ),
       out,
     ),
+  );
+}
+
+export async function masksView(shell: Shell) {
+  const mine = h('div', { class: 'panel slim' });
+  const board = h('div', { class: 'mask-board' }, h('p', { class: 'muted' }, 'Counting…'));
+  const paint = () => {
+    const m = myMask();
+    const secretBox = h('code', { class: 'code hidden' });
+    const importIn = h('input', { placeholder: 'Paste a mask key to restore it', spellcheck: 'false' });
+    mine.replaceChildren(
+      h('h3', {}, 'Your mask'),
+      m
+        ? h('div', { class: 'mask-me' }, h('span', { class: 'ash-sigil big' }, sigil(m.pub)), h('div', {}, h('b', {}, `🎭 ${maskName(m.pub)}`), h('p', { class: 'hint' }, 'Lives only in this browser. Sign burns with it to build a reputation nobody can fake or trace to your wallet.')))
+        : h('p', { class: 'hint' }, 'No mask in this browser. A mask is an Ed25519 key that never leaves this device; it signs your burns so they add up to one pseudonymous reputation. Your wallet stays unlinked.'),
+      h(
+        'div',
+        { class: 'row' },
+        m
+          ? h('button', { class: 'btn small', type: 'button', onclick: () => { secretBox.textContent = m.secret; secretBox.classList.toggle('hidden'); } }, 'Show key to back up')
+          : h('button', { class: 'btn fire small', type: 'button', onclick: () => { newMask(); paint(); } }, 'Create my mask'),
+        m ? h('button', { class: 'btn small', type: 'button', onclick: () => { if (confirm('Forget this mask? Without a backup it is gone forever.')) { dropMask(); paint(); } } }, 'Forget') : null,
+      ),
+      secretBox,
+    );
+    if (!m) mine.append(h('div', { class: 'row tight' }, importIn, h('button', { class: 'btn small', type: 'button', onclick: () => { try { importMask(importIn.value); paint(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); } } }, 'Restore')));
+  };
+  paint();
+  shell(
+    h(
+      'div',
+      { class: 'wide' },
+      h('a', { class: 'link', href: '#/burn' }, '← Burn Book'),
+      h('p', { class: 'eyebrow ember' }, 'Masks'),
+      h('h1', {}, 'Reputation without a face.'),
+      h('p', { class: 'muted lede' }, 'Sign your burns with a mask and they add up: a pseudonym whose every post and every ZEC burned is provably its own. Anyone can verify the signatures. Nobody can link a mask to a wallet, or a wallet to a mask.'),
+      mine,
+      h('h2', {}, 'Most burned masks'),
+      board,
+    ),
+  );
+  const w = await wall();
+  board.replaceChildren(
+    ...(w.masks.length
+      ? w.masks.map((m, i) => h('div', { class: 'mask-row' }, h('span', { class: 'rank' }, `#${i + 1}`), h('span', { class: 'ash-sigil' }, sigil(m.pub)), h('b', {}, `🎭 ${maskName(m.pub)}`), h('span', { class: 'muted small' }, `${m.count} burn${m.count === 1 ? '' : 's'}`), h('span', { class: 'flame' }, '🔥 ', zec(m.burned, 'amount sm'))))
+      : [h('p', { class: 'muted' }, 'No signed burns yet.')]),
   );
 }
 

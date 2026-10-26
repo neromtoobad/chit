@@ -1,0 +1,34 @@
+{
+  "a": [
+    {
+      "value": 30000000,
+      "memo": "Every ZEC on this wall was burned by someone who wanted to be heard more than they wanted the money. Respect it.\n~C1E62bSSQBXKCQLtB5BE06xdvsIwbwaUjBDajrbjny0.to_V6ji9yRe7xzaW4WdMeps2-_kR_4uOirzDzeDXo-a2Wn7xuexrliRxGlulUV-NIRQyQwy5Hb6xCJ7YL7R8Bg"
+    },
+    {
+      "value": 8000000,
+      "memo": "Mask on. Wallet unlinkable. Reputation provable. This is what Zcash identity should feel like.\n~GX9rI-FshTLGq8g4-s1ep4m-DHaykgM0A5v6iz02jWE.hszRAUxDjt-JuVtSps6AJYPKKMHuMColMOAUxq21h-yXKsDeQ9B4caltN52G6E0BmjTsiuddugMTY8A9_5qdCQ"
+    },
+    {
+      "value": 5000000,
+      "memo": "poll:Should Zcash burn 60% of transaction fees (ZIP 235)?|Yes, burn them|No, keep issuance|Burn them here instead"
+    }
+  ],
+  "b": [
+    {
+      "value": 40000000,
+      "memo": "vote:{POLL}:0 scarcity is a feature"
+    },
+    {
+      "value": 15000000,
+      "memo": "vote:{POLL}:1"
+    },
+    {
+      "value": 22000000,
+      "memo": "vote:{POLL}:2 the black hole is right here"
+    },
+    {
+      "value": 9000000,
+      "memo": "vote:{POLL}:0"
+    }
+  ]
+}

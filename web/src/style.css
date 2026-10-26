@@ -277,6 +277,24 @@ pre.code.block .tiny { position: absolute; right: 10px; top: 9px; }
 .seal-opt { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .seal-opt input[type='datetime-local'] { max-width: 280px; color-scheme: dark; }
 
+.who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mask-name { font: 600 13px var(--sans); color: #f0c9a8; text-decoration: none; }
+.poll { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.poll .ash-text { margin-bottom: 6px; }
+.poll-opt { position: relative; display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #3b281f; border-radius: 4px; overflow: hidden; color: var(--text); text-decoration: none; }
+a.poll-opt:hover { border-color: var(--ember); }
+.poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(255, 122, 61, .35), rgba(255, 122, 61, .12)); }
+.poll-label, .poll-num { position: relative; }
+.poll-label { font-weight: 600; }
+.poll-num { font: 11.5px var(--mono); color: #e8c4a8; white-space: nowrap; }
+.poll-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.mask-me { display: flex; gap: 16px; align-items: center; margin: 8px 0; }
+.ash-sigil.big canvas { width: 64px; height: 64px; }
+.mask-board { display: flex; flex-direction: column; gap: 8px; }
+.mask-row { display: flex; gap: 14px; align-items: center; border: 1px solid #3b281f; border-radius: 6px; padding: 12px 16px; background: rgba(23, 17, 14, .6); }
+.mask-row .rank { font: 400 22px var(--serif); color: var(--ember-2); min-width: 34px; }
+.mask-row b { flex: 1; }
+
 /* developers */
 .dev h2 { font-size: 26px; }
 .embed-demo { margin-top: 16px; }

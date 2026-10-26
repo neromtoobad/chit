@@ -25,7 +25,8 @@ type Route =
   | { view: 'newLedger' }
   | { view: 'ledger'; chits: string[]; title: string; hide: boolean }
   | { view: 'dev' }
-  | { view: 'burn'; tab: 'top' | 'new' | 'sealed' }
+  | { view: 'burn'; tab: 'top' | 'new' | 'sealed' | 'polls' }
+  | { view: 'burnMasks' }
   | { view: 'burnNew'; preset: string }
   | { view: 'burnPost'; id: string }
   | { view: 'burnClaim' }
@@ -39,7 +40,8 @@ function route(): Route {
     if ((a === 'p' || a === 'tx') && b) return { view: 'burnPost', id: b };
     if (a === 'claim') return { view: 'burnClaim' };
     if (a === 'proof') return { view: 'burnProof' };
-    return { view: 'burn', tab: a === 'new-posts' ? 'new' : a === 'called-it' ? 'sealed' : 'top' };
+    if (a === 'masks') return { view: 'burnMasks' };
+    return { view: 'burn', tab: a === 'new-posts' ? 'new' : a === 'called-it' ? 'sealed' : a === 'polls' ? 'polls' : 'top' };
   }
   if (head === 'make') return { view: 'make' };
   if (head === 'check') return { view: 'check' };
@@ -748,6 +750,7 @@ function render() {
   else if (r.view === 'burnPost') burnbook.postView(shell, r.id);
   else if (r.view === 'burnClaim') burnbook.claimView(shell);
   else if (r.view === 'burnProof') burnbook.proofView(shell);
+  else if (r.view === 'burnMasks') burnbook.masksView(shell);
   else home();
   window.scrollTo(0, 0);
 }

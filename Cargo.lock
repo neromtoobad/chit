@@ -308,6 +308,7 @@ dependencies = [
  "orchard",
  "pasta_curves",
  "rand 0.10.3",
+ "serde_json",
  "subtle",
  "zcash_address",
  "zcash_keys",

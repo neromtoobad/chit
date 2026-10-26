@@ -40,6 +40,29 @@ proposed spec text is in [`docs/zip-0311-orchard-ironwood.md`](docs/zip-0311-orc
   its throwaway keys, so you can try every flow without a wallet. The app always labels it
   SPECIMEN and never calls it "on chain".
 
+## Burn Book
+
+**Say anything. Burn ZEC to say it. Nobody knows who.**
+
+- **Posts are burns.** Each post is a shielded payment to an address nobody can ever
+  spend from, with the message in the encrypted memo.
+- **The black hole is provable.** The address's `ak` is a hash-to-curve point
+  (`core/src/burn.rs`), so no spend key exists. Its viewing key is public: every reader
+  decrypts and verifies every post in the browser, while burners stay anonymous.
+- **Ranking:** by total ZEC burned. Boosts (`+<ref>`) and replies (`re:<ref>`) are burns too.
+- **Called it:** a prediction time-locked to a drand round (tlock) inside the memo. Nobody
+  can read it before its date, not even its author; the burn's block proves when it was
+  said.
+- **Burn polls:** `poll:Question|A|B|…`, then voting with `vote:<ref>:<k>`. Results are
+  weighted by ZEC destroyed, and every voter is anonymous.
+- **Masks:** an optional Ed25519 signature line, `~<pubkey>.<sig>`, from a key that lives
+  only in your browser. It gives a pseudonymous reputation (total ZEC burned) that is
+  provably yours and unlinkable to your wallet.
+- **Share cards:** a 1200×630 image of any post, drawn locally, plus a Post on X link.
+- **Listing:** a post's share link reads the burn straight from the chain. The public wall
+  lists claimed txids: `./scripts/add-burn.sh <txid>` checks the burn is mined and paid to
+  the black hole, then lists it and redeploys.
+
 ## What a chit reveals
 
 |                                              | Viewing key | Chit |

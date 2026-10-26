@@ -44,6 +44,13 @@ fn build(pk: &mut Option<ProvingKey>, burner: &FullViewingKey, posts: &[(u64, St
         .unwrap()
 }
 
+/// Masks, poll and votes made by scripts/specimen-extra.mjs: (value, memo) pairs.
+fn extra(part: &str) -> Vec<(u64, String)> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen/extra.json");
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into())).unwrap();
+    json[part].as_array().map(|v| v.iter().map(|x| (x["value"].as_u64().unwrap(), x["memo"].as_str().unwrap().to_string())).collect()).unwrap_or_default()
+}
+
 /// Sealed predictions made by scripts/specimen-seals.mjs (drand time-lock memos).
 fn seals() -> Vec<String> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen/seals.json");
@@ -64,6 +71,7 @@ fn main() {
         ]
         .into_iter()
         .chain(seals().into_iter().zip([25_000000u64, 10_000000]).map(|(m, v)| (v, m)))
+        .chain(extra("a"))
         .collect::<Vec<_>>(),
     );
     // The builder shuffles outputs, so find which action carries the first post.
@@ -73,13 +81,20 @@ fn main() {
         .unwrap()
         .action;
     let ref_a = format!("{}.{}", &a.txid().to_string()[..10], target);
+    let poll = chit_core::burn::burns_in(&a, zcash_protocol::consensus::NetworkType::Main)
+        .into_iter()
+        .find(|f| matches!(&f.memo, chit_core::MemoView::Text(t) if t.starts_with("poll:")))
+        .map(|f| format!("{}.{}", &a.txid().to_string()[..10], f.action));
     let b = build(
         &mut pk,
         &burner,
         &[
             (2_000000, format!("re:{ref_a} then why pay to prove it? asking anonymously")),
             (50_000000, format!("+{ref_a} burned half a ZEC to agree")),
-        ],
+        ]
+        .into_iter()
+        .chain(extra("b").into_iter().map(|(v, m)| (v, m.replace("{POLL}", poll.as_deref().unwrap_or("")))))
+        .collect::<Vec<_>>(),
     );
     let enc = |t: &Transaction| {
         let mut v = Vec::new();
