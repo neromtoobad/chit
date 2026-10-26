@@ -44,6 +44,13 @@ fn build(pk: &mut Option<ProvingKey>, burner: &FullViewingKey, posts: &[(u64, St
         .unwrap()
 }
 
+/// Sealed predictions made by scripts/specimen-seals.mjs (drand time-lock memos).
+fn seals() -> Vec<String> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen/seals.json");
+    let json = std::fs::read_to_string(path).unwrap_or_default();
+    json.split('"').filter(|s| s.starts_with("seal:")).map(str::to_string).collect()
+}
+
 fn main() {
     let mut pk = None;
     let burner = FullViewingKey::from(&SpendingKey::from_bytes([0x77; 32]).unwrap());
@@ -54,7 +61,10 @@ fn main() {
             (1_00000000, "Privacy is not a crime. I burned 1 ZEC to say it where nobody can delete it.".into()),
             (5_000000, "gm from nowhere".into()),
             (42_000000, "If you can read this, someone just set money on fire for attention. Worth it.".into()),
-        ],
+        ]
+        .into_iter()
+        .chain(seals().into_iter().zip([25_000000u64, 10_000000]).map(|(m, v)| (v, m)))
+        .collect::<Vec<_>>(),
     );
     // The builder shuffles outputs, so find which action carries the first post.
     let target = chit_core::burn::burns_in(&a, zcash_protocol::consensus::NetworkType::Main)

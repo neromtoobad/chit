@@ -272,6 +272,11 @@ pre.code.block .tiny { position: absolute; right: 10px; top: 9px; }
 .proof-row .code { white-space: pre-wrap; margin-top: 6px; }
 @media (max-width: 980px) { .burn-hero { grid-template-columns: minmax(0, 1fr); } }
 
+.sealed .tag.called { background: rgba(124, 245, 168, .14); color: var(--green); display: inline-block; margin-bottom: 8px; }
+.sealed-lock b { color: var(--ember-2); font-weight: 400; }
+.seal-opt { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.seal-opt input[type='datetime-local'] { max-width: 280px; color-scheme: dark; }
+
 /* developers */
 .dev h2 { font-size: 26px; }
 .embed-demo { margin-top: 16px; }

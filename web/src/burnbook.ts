@@ -16,6 +16,7 @@ import { ChainError, fetchTx } from './chain';
 import { certificate, checklog, copy, h, short, sigil, zec } from './cert';
 import { parseZec, zecString } from './request';
 import * as zpd from './zpd';
+import { isSealed, opensAt, seal, unseal } from './seal-codec.mjs';
 import * as wasm from '../pkg/chit_wasm.js';
 
 export interface BurnInfo {
@@ -33,7 +34,7 @@ export interface Burn {
   action: number;
   value: number;
   text: string;
-  kind: 'post' | 'reply' | 'boost';
+  kind: 'post' | 'reply' | 'boost' | 'sealed';
   target: string | null;
   chit: string;
   height: number | null;
@@ -58,6 +59,7 @@ export async function burnInfo(): Promise<BurnInfo> {
 const MEMO_LIMIT = 512;
 
 function parseMemo(text: string): Pick<Burn, 'kind' | 'target' | 'text'> {
+  if (isSealed(text)) return { kind: 'sealed', target: null, text };
   const re = text.match(/^re:([0-9a-f]{10}\.\d{1,3})\s?([\s\S]*)$/);
   if (re) return { kind: 'reply', target: re[1], text: re[2] };
   const boost = text.match(/^\+([0-9a-f]{10}\.\d{1,3})\s?([\s\S]*)$/);
@@ -143,7 +145,7 @@ async function buildWall(): Promise<Wall> {
   }
   const byId = new Map(all.map((b) => [b.id, b]));
   const posts = new Map<string, Post>();
-  for (const b of all) if (b.kind === 'post' || !b.target || !byId.has(b.target)) posts.set(b.id, { ...b, kind: b.kind === 'post' ? 'post' : b.kind, boosted: 0, total: b.value, replies: [], boosts: [] });
+  for (const b of all) if (b.kind === 'post' || b.kind === 'sealed' || !b.target || !byId.has(b.target)) posts.set(b.id, { ...b, boosted: 0, total: b.value, replies: [], boosts: [] });
   for (const b of all) {
     const p = b.target ? posts.get(b.target) : undefined;
     if (!p || b.id === p.id) continue;
@@ -174,6 +176,36 @@ export async function claim(txid: string): Promise<Burn[]> {
   return found;
 }
 
+// ---------- sealed predictions ----------
+
+const fmtWhen = (d: Date) => d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC';
+
+function until(d: Date) {
+  const ms = d.getTime() - Date.now();
+  const days = Math.floor(ms / 864e5);
+  const hours = Math.floor((ms % 864e5) / 36e5);
+  return days > 0 ? `${days}d ${hours}h` : `${hours}h ${Math.max(1, Math.floor((ms % 36e5) / 6e4))}m`;
+}
+
+/** A sealed post: a countdown until its drand round, then the revealed text. */
+function sealedText(post: Burn): HTMLElement {
+  const el = h('div', { class: 'sealed' }, h('p', { class: 'ash-text muted' }, '🔒 Sealed prediction'));
+  (async () => {
+    try {
+      const at = await opensAt(post.text);
+      if (at.getTime() > Date.now()) {
+        el.replaceChildren(h('p', { class: 'ash-text sealed-lock' }, '🔒 Sealed until ', h('b', {}, fmtWhen(at))), h('p', { class: 'hint' }, `Opens in ${until(at)}. Nobody can read it before then: not the author, not us. It is time-lock encrypted to a future drand round.`));
+        return;
+      }
+      const text = await unseal(post.text);
+      el.replaceChildren(h('span', { class: 'tag called' }, '✓ Called it'), h('p', { class: 'ash-text' }, text), h('p', { class: 'hint' }, `Sealed ${post.height ? `in block ${post.height.toLocaleString('en-US')}` : 'in a specimen transaction'}, opened ${fmtWhen(at)} by the drand beacon.`));
+    } catch (e) {
+      el.replaceChildren(h('p', { class: 'ash-text muted' }, '🔒 Sealed (could not reach drand to check)'), h('p', { class: 'hint' }, e instanceof Error ? e.message : String(e)));
+    }
+  })();
+  return el;
+}
+
 // ---------- views ----------
 
 type Shell = (...kids: Node[]) => void;
@@ -183,7 +215,7 @@ function ember(post: Post, onOpen: () => void, rank?: number): HTMLElement {
     'article',
     { class: `ash${post.specimen ? ' is-specimen' : ''}`, tabindex: '0', onclick: onOpen, onkeydown: (e: Event) => (e as KeyboardEvent).key === 'Enter' && onOpen() },
     h('div', { class: 'ash-head' }, rank ? h('span', { class: 'rank' }, `#${rank}`) : null, h('span', { class: 'ash-sigil' }, sigil(`${post.txid}:${post.action}`)), h('span', { class: 'kicker' }, post.specimen ? 'Specimen · not on chain' : post.height ? `Block ${post.height.toLocaleString('en-US')}` : 'Pending'), post.kind !== 'post' ? h('span', { class: 'tag' }, post.kind) : null),
-    h('p', { class: 'ash-text' }, post.text || h('span', { class: 'muted' }, '(no message)')),
+    post.kind === 'sealed' ? sealedText(post) : h('p', { class: 'ash-text' }, post.text || h('span', { class: 'muted' }, '(no message)')),
     h(
       'div',
       { class: 'ash-foot' },
@@ -195,7 +227,7 @@ function ember(post: Post, onOpen: () => void, rank?: number): HTMLElement {
   return card;
 }
 
-export async function wallView(shell: Shell, tab: 'top' | 'new') {
+export async function wallView(shell: Shell, tab: 'top' | 'new' | 'sealed') {
   const grid = h('div', { class: 'wall' }, h('p', { class: 'muted' }, 'Reading the ashes…'));
   const counter = h('div', { class: 'burn-stats' });
   shell(
@@ -205,7 +237,7 @@ export async function wallView(shell: Shell, tab: 'top' | 'new') {
       h('div', {}, h('p', { class: 'eyebrow ember' }, 'Burn Book · Zcash'), h('h1', {}, 'Say anything.', h('br'), h('em', { class: 'ember' }, 'Burn ZEC to say it.'), h('br'), 'Nobody knows who.'), h('p', { class: 'lede' }, 'Every post is a shielded payment to an address nobody can ever spend from. The message rides in the encrypted memo; the key to read it is public, the key to spend it does not exist. Burn more, rise higher. It cannot be deleted, faked, or traced to you.'), h('div', { class: 'row' }, h('a', { class: 'btn fire', href: '#/burn/new' }, 'Write in the book'), h('a', { class: 'btn', href: '#/burn/proof' }, 'Prove the black hole'))),
       counter,
     ),
-    h('nav', { class: 'tabs' }, h('a', { href: '#/burn', class: tab === 'top' ? 'on' : '' }, 'Most burned'), h('a', { href: '#/burn/new-posts', class: tab === 'new' ? 'on' : '' }, 'Newest'), h('a', { href: '#/burn/claim' }, 'Claim a burn')),
+    h('nav', { class: 'tabs' }, h('a', { href: '#/burn', class: tab === 'top' ? 'on' : '' }, 'Most burned'), h('a', { href: '#/burn/new-posts', class: tab === 'new' ? 'on' : '' }, 'Newest'), h('a', { href: '#/burn/called-it', class: tab === 'sealed' ? 'on' : '' }, '🔒 Called it'), h('a', { href: '#/burn/claim' }, 'Claim a burn')),
     grid,
   );
   try {
@@ -215,7 +247,7 @@ export async function wallView(shell: Shell, tab: 'top' | 'new') {
       h('div', { class: 'stat-row' }, h('div', {}, h('b', {}, String(w.count)), h('span', {}, 'burns')), h('div', {}, h('b', {}, zecString(w.biggest)), h('span', {}, 'biggest'))),
     );
     if (w.specimen) counter.append(h('p', { class: 'hint' }, 'No mainnet burns claimed yet. Below is the specimen wall: real proven transactions, never mined, not counted. Be the first real one.'));
-    const posts = [...w.posts].filter((p) => p.kind === 'post' || !w.posts.some((q) => q.id === p.target));
+    const posts = [...w.posts].filter((p) => (tab === 'sealed' ? p.kind === 'sealed' : p.kind === 'post' || p.kind === 'sealed' || !w.posts.some((q) => q.id === p.target)));
     posts.sort(tab === 'top' ? (a, b) => b.total - a.total : (a, b) => (b.height ?? 0) - (a.height ?? 0) || b.id.localeCompare(a.id));
     grid.replaceChildren(...posts.map((p, i) => ember(p, () => (location.hash = `#/burn/p/${p.id}`), tab === 'top' ? i + 1 : undefined)));
   } catch (e) {
@@ -268,9 +300,16 @@ export async function composeView(shell: Shell, preset: string) {
   const text = h('textarea', { rows: '5', placeholder: mode === 'boost' ? 'Optional: why you are boosting' : 'Say it. It will outlive you.', maxlength: '500' });
   const amount = h('input', { value: mode === 'boost' ? '0.01' : '0.001', inputmode: 'decimal' });
   const count = h('span', { class: 'hint' });
+  const sealBox = h('input', { type: 'checkbox' });
+  const sealAt = h('input', { type: 'datetime-local', value: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 16) });
+  const sealWrap = h('div', { class: mode === 'post' ? 'seal-opt' : 'hidden' }, h('label', { class: 'inline' }, sealBox, '🔒 Seal it: nobody can read it until'), sealAt, h('p', { class: 'hint' }, 'Time-lock encrypted to a drand round. It shows as sealed on the wall, opens by itself at that time, and the burn’s block proves you said it first. Up to about 180 characters.'));
   const out = h('div');
-  const bytes = () => new TextEncoder().encode(prefix + text.value).length;
-  const upd = () => (count.textContent = `${bytes()}/${MEMO_LIMIT} bytes in the memo`);
+  const bytes = () => {
+    const n = new TextEncoder().encode(prefix + text.value).length;
+    return sealBox.checked ? 5 + Math.ceil((197 + n) / 3) * 4 : n;
+  };
+  const upd = () => (count.textContent = `${bytes()}/${MEMO_LIMIT} bytes in the memo${sealBox.checked ? ' (sealed)' : ''}`);
+  sealBox.addEventListener('change', upd);
   text.addEventListener('input', upd);
   upd();
   shell(
@@ -281,13 +320,23 @@ export async function composeView(shell: Shell, preset: string) {
         'form',
         {
           class: 'panel',
-          onsubmit: (e: Event) => {
+          onsubmit: async (e: Event) => {
             e.preventDefault();
             const zat = parseZec(amount.value);
-            const memo = prefix + text.value.trim();
+            let memo = prefix + text.value.trim();
             if (!zat || zat < 100_000) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Burn at least 0.001 ZEC.')));
             if (mode !== 'boost' && !text.value.trim()) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Write something to burn.')));
             if (bytes() > MEMO_LIMIT) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Too long for a Zcash memo (512 bytes).')));
+            if (sealBox.checked) {
+              const when = new Date(sealAt.value + 'Z');
+              if (!(when.getTime() > Date.now() + 60_000)) return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Pick a time in the future to open it.')));
+              out.replaceChildren(h('p', { class: 'muted' }, 'Sealing with drand…'));
+              try {
+                memo = await seal(text.value.trim(), when);
+              } catch (err) {
+                return out.replaceChildren(h('div', { class: 'error' }, h('b', {}, 'Could not reach drand to seal it.'), h('p', {}, err instanceof Error ? err.message : String(err))));
+              }
+            }
             const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(memo))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
             const uri = `zcash:${info.address}?amount=${zecString(zat)}&memo=${b64}`;
             const q = qrcode(0, 'L');
@@ -311,6 +360,7 @@ export async function composeView(shell: Shell, preset: string) {
         h('label', {}, mode === 'boost' ? 'Note (optional)' : 'Message'),
         text,
         count,
+        sealWrap,
         h('label', {}, 'ZEC to burn'),
         amount,
         h('p', { class: 'hint' }, 'Gone forever. Posts rank by total ZEC burned, including boosts from others.'),

@@ -25,7 +25,7 @@ type Route =
   | { view: 'newLedger' }
   | { view: 'ledger'; chits: string[]; title: string; hide: boolean }
   | { view: 'dev' }
-  | { view: 'burn'; tab: 'top' | 'new' }
+  | { view: 'burn'; tab: 'top' | 'new' | 'sealed' }
   | { view: 'burnNew'; preset: string }
   | { view: 'burnPost'; id: string }
   | { view: 'burnClaim' }
@@ -39,7 +39,7 @@ function route(): Route {
     if (a === 'p' && b) return { view: 'burnPost', id: b };
     if (a === 'claim') return { view: 'burnClaim' };
     if (a === 'proof') return { view: 'burnProof' };
-    return { view: 'burn', tab: a === 'new-posts' ? 'new' : 'top' };
+    return { view: 'burn', tab: a === 'new-posts' ? 'new' : a === 'called-it' ? 'sealed' : 'top' };
   }
   if (head === 'make') return { view: 'make' };
   if (head === 'check') return { view: 'check' };

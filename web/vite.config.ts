@@ -8,7 +8,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   "img-src 'self' data:",
-  "connect-src 'self' https://api.blockchair.com",
+  "connect-src 'self' https://api.blockchair.com https://api.drand.sh",
   "form-action 'none'",
   "base-uri 'none'",
 ].join('; ');
