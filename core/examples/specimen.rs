@@ -36,13 +36,31 @@ fn main() {
     ];
 
     let version = BundleVersion::ironwood_v3();
-    let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), Anchor::empty_tree()).unwrap();
+    let mut b = Builder::new(
+        BundleType::DEFAULT,
+        version,
+        version.default_flags(),
+        Anchor::empty_tree(),
+    )
+    .unwrap();
     for (seed, value, text) in prizes {
-        b.add_output(Some(organiser.to_ovk(Scope::External)), fvk(seed).address_at(0u32, Scope::External), NoteValue::from_raw(value), memo(text)).unwrap();
+        b.add_output(
+            Some(organiser.to_ovk(Scope::External)),
+            fvk(seed).address_at(0u32, Scope::External),
+            NoteValue::from_raw(value),
+            memo(text),
+        )
+        .unwrap();
     }
     let mut empty = [0u8; 512];
     empty[0] = 0xf6;
-    b.add_output(Some(organiser.to_ovk(Scope::Internal)), organiser.address_at(0u32, Scope::Internal), NoteValue::from_raw(4_20000000), empty).unwrap();
+    b.add_output(
+        Some(organiser.to_ovk(Scope::Internal)),
+        organiser.address_at(0u32, Scope::Internal),
+        NoteValue::from_raw(4_20000000),
+        empty,
+    )
+    .unwrap();
     let (bundle, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
 
     eprintln!("building proving key…");
@@ -54,16 +72,34 @@ fn main() {
         .unwrap()
         .try_map_value_balance(|v: i64| zcash_protocol::value::ZatBalance::from_i64(v))
         .unwrap();
-    let tx = TransactionData::from_parts_v6(BranchId::Nu6_3, 0, BlockHeight::from_u32(3_530_000), None, None, None, Some(bundle))
-        .freeze()
-        .unwrap();
+    let tx = TransactionData::from_parts_v6(
+        BranchId::Nu6_3,
+        0,
+        BlockHeight::from_u32(3_530_000),
+        None,
+        None,
+        None,
+        Some(bundle),
+    )
+    .freeze()
+    .unwrap();
     let mut bytes = Vec::new();
     tx.write(&mut bytes).unwrap();
 
-    let ufvk = UnifiedFullViewingKey::new(None, Some(organiser)).unwrap().encode(&Network::MainNetwork).unwrap();
+    let ufvk = UnifiedFullViewingKey::new(None, Some(organiser))
+        .unwrap()
+        .encode(&Network::MainNetwork)
+        .unwrap();
     let found = chit_core::scan(&tx, &ufvk, NetworkType::Main).unwrap();
-    let chits: Vec<String> = found.iter().filter(|f| !f.change).map(|f| f.disclosure.clone()).collect();
-    let winner = UnifiedFullViewingKey::new(None, Some(fvk(0x13))).unwrap().encode(&Network::MainNetwork).unwrap();
+    let chits: Vec<String> = found
+        .iter()
+        .filter(|f| !f.change)
+        .map(|f| f.disclosure.clone())
+        .collect();
+    let winner = UnifiedFullViewingKey::new(None, Some(fvk(0x13)))
+        .unwrap()
+        .encode(&Network::MainNetwork)
+        .unwrap();
 
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen");
     std::fs::create_dir_all(dir).unwrap();

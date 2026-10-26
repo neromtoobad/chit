@@ -48,7 +48,8 @@ pub fn burn_fvk_bytes() -> [u8; 96] {
 }
 
 pub fn burn_fvk() -> FullViewingKey {
-    FullViewingKey::from_bytes(&burn_fvk_bytes()).expect("the derived burn key is a valid full viewing key")
+    FullViewingKey::from_bytes(&burn_fvk_bytes())
+        .expect("the derived burn key is a valid full viewing key")
 }
 
 pub(crate) fn params(n: NetworkType) -> Network {
@@ -69,9 +70,12 @@ pub fn burn_address(network: NetworkType) -> String {
 
 /// The published viewing key. Anyone can load it into a wallet to watch every burn.
 pub fn burn_ufvk(network: NetworkType) -> String {
-    Ufvk::try_from_items(Revision::R0, vec![Uitem::Data(Fvk::Orchard(burn_fvk_bytes()))])
-        .expect("an Orchard-only UFVK is valid")
-        .encode(&network)
+    Ufvk::try_from_items(
+        Revision::R0,
+        vec![Uitem::Data(Fvk::Orchard(burn_fvk_bytes()))],
+    )
+    .expect("an Orchard-only UFVK is valid")
+    .encode(&network)
 }
 
 /// Every burn in a transaction: outputs to the Burn Book address, with value and memo.

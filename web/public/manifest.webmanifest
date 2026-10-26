@@ -1,0 +1,10 @@
+{
+  "name": "Chit · prove one shielded payment",
+  "short_name": "Chit",
+  "description": "Prove one shielded Zcash payment without revealing your viewing key. Burn Book, Pay & prove, payout ledgers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0d0c",
+  "theme_color": "#0b0d0c",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -7,7 +7,6 @@ use orchard::{
     value::NoteValue,
 };
 
-
 fn fvk(seed: u8) -> FullViewingKey {
     FullViewingKey::from(&SpendingKey::from_bytes([seed; 32]).unwrap())
 }
@@ -47,7 +46,11 @@ fn payment(version: BundleVersion) -> (Vec<Action<()>>, FullViewingKey, FullView
         )
         .unwrap();
     let (bundle, _) = builder.build::<i64>(rand::rng()).unwrap().unwrap();
-    let actions = bundle.actions().iter().map(|a| a.clone().map(|_| ())).collect();
+    let actions = bundle
+        .actions()
+        .iter()
+        .map(|a| a.clone().map(|_| ()))
+        .collect();
     (actions, alice, bob)
 }
 
@@ -72,13 +75,18 @@ fn check_pool<V: DomainVersion>(version: BundleVersion) {
     let (i, (_, _, note, _, _, key)) = sent[0];
     assert_eq!(note.value().inner(), 125_000_000);
     assert!(matches!(key, KeyMaterial::Ock(_)));
-    assert!(alice_hits.iter().any(|(_, h)| h.0 == Direction::Incoming && h.1));
+    assert!(alice_hits
+        .iter()
+        .any(|(_, h)| h.0 == Direction::Incoming && h.1));
 
     // The outgoing disclosure opens Bob's output, and shows his address and the memo.
     let (n, addr, m) = open::<V>(&actions[*i], key).expect("ock opens the output");
     assert_eq!(n.value().inner(), 125_000_000);
     assert_eq!(addr, bob.address_at(0u32, Scope::External));
-    assert_eq!(MemoView::from_bytes(&m), MemoView::Text("invoice #1042".into()));
+    assert_eq!(
+        MemoView::from_bytes(&m),
+        MemoView::Text("invoice #1042".into())
+    );
 
     // It opens nothing else.
     for (j, a) in actions.iter().enumerate() {
@@ -126,7 +134,10 @@ fn pool_domains_do_not_cross() {
     // would be meaningless.
     let (actions, alice, _) = payment(BundleVersion::ironwood_v3());
     let hits = scan_all::<IronwoodVersion>(&actions, &alice);
-    let (i, (_, _, _, _, _, key)) = hits.iter().find(|(_, h)| h.0 == Direction::Outgoing).unwrap();
+    let (i, (_, _, _, _, _, key)) = hits
+        .iter()
+        .find(|(_, h)| h.0 == Direction::Outgoing)
+        .unwrap();
     assert!(open::<IronwoodVersion>(&actions[*i], key).is_some());
     assert!(open::<OrchardVersion>(&actions[*i], key).is_none());
 }
@@ -177,9 +188,18 @@ mod burn {
         let a = burn_address(NetworkType::Main);
         assert!(a.starts_with("u1"));
         assert_eq!(a, burn_address(NetworkType::Main));
-        assert_eq!(crate::orchard_receiver(&a, NetworkType::Main).unwrap(), burn_fvk().address_at(0u32, Scope::External).to_raw_address_bytes());
+        assert_eq!(
+            crate::orchard_receiver(&a, NetworkType::Main).unwrap(),
+            burn_fvk()
+                .address_at(0u32, Scope::External)
+                .to_raw_address_bytes()
+        );
         // The published UFVK decodes to exactly this key.
-        let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&zcash_protocol::consensus::Network::MainNetwork, &burn_ufvk(NetworkType::Main)).unwrap();
+        let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(
+            &zcash_protocol::consensus::Network::MainNetwork,
+            &burn_ufvk(NetworkType::Main),
+        )
+        .unwrap();
         assert_eq!(ufvk.orchard().unwrap().to_bytes(), burn_fvk_bytes());
     }
 
@@ -198,12 +218,31 @@ mod burn {
     fn a_payment_to_the_burn_address_is_publicly_readable() {
         let alice = fvk(1);
         let version = BundleVersion::ironwood_v3();
-        let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), Anchor::empty_tree()).unwrap();
-        b.add_output(Some(alice.to_ovk(Scope::External)), burn_fvk().address_at(0u32, Scope::External), NoteValue::from_raw(1_000_000), memo("bb:gm, from the void")).unwrap();
+        let mut b = Builder::new(
+            BundleType::DEFAULT,
+            version,
+            version.default_flags(),
+            Anchor::empty_tree(),
+        )
+        .unwrap();
+        b.add_output(
+            Some(alice.to_ovk(Scope::External)),
+            burn_fvk().address_at(0u32, Scope::External),
+            NoteValue::from_raw(1_000_000),
+            memo("bb:gm, from the void"),
+        )
+        .unwrap();
         let (bundle, _) = b.build::<i64>(rand::rng()).unwrap().unwrap();
-        let hits: Vec<_> = bundle.actions().iter().filter_map(|a| scan_action::<IronwoodVersion>(a, &burn_fvk())).collect();
+        let hits: Vec<_> = bundle
+            .actions()
+            .iter()
+            .filter_map(|a| scan_action::<IronwoodVersion>(a, &burn_fvk()))
+            .collect();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].2.value().inner(), 1_000_000);
-        assert_eq!(MemoView::from_bytes(&hits[0].4), MemoView::Text("bb:gm, from the void".into()));
+        assert_eq!(
+            MemoView::from_bytes(&hits[0].4),
+            MemoView::Text("bb:gm, from the void".into())
+        );
     }
 }

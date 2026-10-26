@@ -22,13 +22,29 @@ fn memo(text: &str) -> [u8; 512] {
     m
 }
 
-fn build(pk: &mut Option<ProvingKey>, burner: &FullViewingKey, posts: &[(u64, String)]) -> Transaction {
+fn build(
+    pk: &mut Option<ProvingKey>,
+    burner: &FullViewingKey,
+    posts: &[(u64, String)],
+) -> Transaction {
     let mut rng = rand::rng();
     let version = BundleVersion::ironwood_v3();
     let to = chit_core::burn::burn_fvk().address_at(0u32, Scope::External);
-    let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), Anchor::empty_tree()).unwrap();
+    let mut b = Builder::new(
+        BundleType::DEFAULT,
+        version,
+        version.default_flags(),
+        Anchor::empty_tree(),
+    )
+    .unwrap();
     for (value, text) in posts {
-        b.add_output(Some(burner.to_ovk(Scope::External)), to, NoteValue::from_raw(*value), memo(text)).unwrap();
+        b.add_output(
+            Some(burner.to_ovk(Scope::External)),
+            to,
+            NoteValue::from_raw(*value),
+            memo(text),
+        )
+        .unwrap();
     }
     let (bundle, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
     let pk = pk.get_or_insert_with(|| ProvingKey::build(bundle.circuit_version()));
@@ -39,23 +55,54 @@ fn build(pk: &mut Option<ProvingKey>, burner: &FullViewingKey, posts: &[(u64, St
         .unwrap()
         .try_map_value_balance(|v: i64| zcash_protocol::value::ZatBalance::from_i64(v))
         .unwrap();
-    TransactionData::from_parts_v6(BranchId::Nu6_3, 0, BlockHeight::from_u32(3_530_000), None, None, None, Some(bundle))
-        .freeze()
-        .unwrap()
+    TransactionData::from_parts_v6(
+        BranchId::Nu6_3,
+        0,
+        BlockHeight::from_u32(3_530_000),
+        None,
+        None,
+        None,
+        Some(bundle),
+    )
+    .freeze()
+    .unwrap()
 }
 
 /// Masks, poll and votes made by scripts/specimen-extra.mjs: (value, memo) pairs.
 fn extra(part: &str) -> Vec<(u64, String)> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen/extra.json");
-    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into())).unwrap();
-    json[part].as_array().map(|v| v.iter().map(|x| (x["value"].as_u64().unwrap(), x["memo"].as_str().unwrap().to_string())).collect()).unwrap_or_default()
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../web/public/specimen/extra.json"
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into()))
+            .unwrap();
+    json[part]
+        .as_array()
+        .map(|v| {
+            v.iter()
+                .map(|x| {
+                    (
+                        x["value"].as_u64().unwrap(),
+                        x["memo"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Sealed predictions made by scripts/specimen-seals.mjs (drand time-lock memos).
 fn seals() -> Vec<String> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen/seals.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../web/public/specimen/seals.json"
+    );
     let json = std::fs::read_to_string(path).unwrap_or_default();
-    json.split('"').filter(|s| s.starts_with("seal:")).map(str::to_string).collect()
+    json.split('"')
+        .filter(|s| s.starts_with("seal:"))
+        .map(str::to_string)
+        .collect()
 }
 
 fn main() {
@@ -65,12 +112,25 @@ fn main() {
         &mut pk,
         &burner,
         &[
-            (1_00000000, "Privacy is not a crime. I burned 1 ZEC to say it where nobody can delete it.".into()),
+            (
+                1_00000000,
+                "Privacy is not a crime. I burned 1 ZEC to say it where nobody can delete it."
+                    .into(),
+            ),
             (5_000000, "gm from nowhere".into()),
-            (42_000000, "If you can read this, someone just set money on fire for attention. Worth it.".into()),
+            (
+                42_000000,
+                "If you can read this, someone just set money on fire for attention. Worth it."
+                    .into(),
+            ),
         ]
         .into_iter()
-        .chain(seals().into_iter().zip([25_000000u64, 10_000000]).map(|(m, v)| (v, m)))
+        .chain(
+            seals()
+                .into_iter()
+                .zip([25_000000u64, 10_000000])
+                .map(|(m, v)| (v, m)),
+        )
         .chain(extra("a"))
         .collect::<Vec<_>>(),
     );
@@ -89,17 +149,28 @@ fn main() {
         &mut pk,
         &burner,
         &[
-            (2_000000, format!("re:{ref_a} then why pay to prove it? asking anonymously")),
+            (
+                2_000000,
+                format!("re:{ref_a} then why pay to prove it? asking anonymously"),
+            ),
             (50_000000, format!("+{ref_a} burned half a ZEC to agree")),
         ]
         .into_iter()
-        .chain(extra("b").into_iter().map(|(v, m)| (v, m.replace("{POLL}", poll.as_deref().unwrap_or("")))))
+        .chain(
+            extra("b")
+                .into_iter()
+                .map(|(v, m)| (v, m.replace("{POLL}", poll.as_deref().unwrap_or("")))),
+        )
         .collect::<Vec<_>>(),
     );
     let enc = |t: &Transaction| {
         let mut v = Vec::new();
         t.write(&mut v).unwrap();
-        format!("{{\"txid\":\"{}\",\"tx\":\"{}\"}}", t.txid(), hex::encode(v))
+        format!(
+            "{{\"txid\":\"{}\",\"tx\":\"{}\"}}",
+            t.txid(),
+            hex::encode(v)
+        )
     };
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/public/specimen");
     std::fs::write(

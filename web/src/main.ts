@@ -4,7 +4,7 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './style.css';
 import qrcode from 'qrcode-generator';
-import { ChainError, explorerUrl, fetchStats, fetchTx, type Network, type TxData } from './chain';
+import { ChainError, explorerUrl, fetchStats, fetchTx, sourceName, type Network, type TxData } from './chain';
 import { certificate, checklog, copy, h, memoNode, short, zec, type Seal, type StepView } from './cert';
 import { checkInvoice, decodeRequest, encodeRequest, memoFor, parseZec, zecString, zip321, type PayRequest } from './request';
 import { specimen } from './specimen';
@@ -12,6 +12,7 @@ import * as zpd from './zpd';
 import * as burnbook from './burnbook';
 
 const app = document.getElementById('app')!;
+let srcLabel = 'No server, no account. Keys never leave this tab.';
 
 // Every route lives in the URL fragment, which browsers never send to a server: a shared
 // chit, request or ledger link reveals nothing to whoever hosts this page.
@@ -89,7 +90,7 @@ function shell(...kids: Node[]) {
     h(
       'footer',
       {},
-      h('span', {}, 'No server, no account. Keys never leave this tab.'),
+      h('span', { class: 'src' }, srcLabel),
       h('span', {}, h('a', { href: 'https://github.com/neromtoobad/chit', target: '_blank', rel: 'noreferrer' }, 'Source'), ' · ', h('a', { href: 'https://zips.z.cash/zip-0311', target: '_blank', rel: 'noreferrer' }, 'ZIP 311')),
     ),
   );
@@ -131,7 +132,7 @@ async function checkChit(chit: string, rawHex?: string): Promise<Checked> {
 
 const sourceStep = (c: Checked): StepView =>
   c.source === 'chain'
-    ? { id: 'mined', label: `Mined in block ${c.tx?.height?.toLocaleString('en-US') ?? '(pending)'} (Blockchair)`, ok: c.tx?.height ? true : null }
+    ? { id: 'mined', label: c.tx?.height ? `Mined in block ${c.tx.height.toLocaleString('en-US')} (${c.tx.source})` : `Not mined yet (${c.tx?.source ?? 'source'})`, ok: c.tx?.height ? true : false }
     : c.source === 'specimen'
       ? { id: 'mined', label: 'Specimen transaction: never mined, by design', ok: null }
       : { id: 'mined', label: 'Pasted transaction: confirm it is mined on your node', ok: null };
@@ -757,3 +758,10 @@ function render() {
 
 window.addEventListener('hashchange', render);
 render();
+
+// Say where transactions come from, and work offline once loaded.
+sourceName().then((name) => {
+  srcLabel = `No account. Keys never leave this tab. Transactions from ${name}.`;
+  document.querySelectorAll('footer .src').forEach((el) => (el.textContent = srcLabel));
+});
+if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

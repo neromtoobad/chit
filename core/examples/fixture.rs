@@ -36,9 +36,27 @@ fn main() {
     let bob = FullViewingKey::from(&SpendingKey::from_bytes([0xb0; 32]).unwrap());
 
     let version = BundleVersion::ironwood_v3();
-    let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), Anchor::empty_tree()).unwrap();
-    b.add_output(Some(alice.to_ovk(Scope::External)), bob.address_at(0u32, Scope::External), NoteValue::from_raw(125_000_000), memo("ZECATHON prize · track 4")).unwrap();
-    b.add_output(Some(alice.to_ovk(Scope::Internal)), alice.address_at(0u32, Scope::Internal), NoteValue::from_raw(31_415_926), empty_memo()).unwrap();
+    let mut b = Builder::new(
+        BundleType::DEFAULT,
+        version,
+        version.default_flags(),
+        Anchor::empty_tree(),
+    )
+    .unwrap();
+    b.add_output(
+        Some(alice.to_ovk(Scope::External)),
+        bob.address_at(0u32, Scope::External),
+        NoteValue::from_raw(125_000_000),
+        memo("ZECATHON prize · track 4"),
+    )
+    .unwrap();
+    b.add_output(
+        Some(alice.to_ovk(Scope::Internal)),
+        alice.address_at(0u32, Scope::Internal),
+        NoteValue::from_raw(31_415_926),
+        empty_memo(),
+    )
+    .unwrap();
     let (bundle, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
 
     eprintln!("building proving key…");
@@ -48,15 +66,30 @@ fn main() {
         .unwrap()
         .apply_signatures(&mut rng, [0u8; 32], &[])
         .unwrap();
-    let bundle = bundle.try_map_value_balance(|v: i64| zcash_protocol::value::ZatBalance::from_i64(v)).unwrap();
-
-    let tx = TransactionData::from_parts_v6(BranchId::Nu6_3, 0, BlockHeight::from_u32(3_530_000), None, None, None, Some(bundle))
-        .freeze()
+    let bundle = bundle
+        .try_map_value_balance(|v: i64| zcash_protocol::value::ZatBalance::from_i64(v))
         .unwrap();
+
+    let tx = TransactionData::from_parts_v6(
+        BranchId::Nu6_3,
+        0,
+        BlockHeight::from_u32(3_530_000),
+        None,
+        None,
+        None,
+        Some(bundle),
+    )
+    .freeze()
+    .unwrap();
     let mut bytes = Vec::new();
     tx.write(&mut bytes).unwrap();
 
-    let ufvk = |fvk: FullViewingKey| UnifiedFullViewingKey::new(None, Some(fvk)).unwrap().encode(&Network::MainNetwork).unwrap();
+    let ufvk = |fvk: FullViewingKey| {
+        UnifiedFullViewingKey::new(None, Some(fvk))
+            .unwrap()
+            .encode(&Network::MainNetwork)
+            .unwrap()
+    };
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
     std::fs::write(format!("{dir}/synthetic.hex"), hex::encode(&bytes)).unwrap();
     std::fs::write(format!("{dir}/synthetic.alice.ufvk"), ufvk(alice)).unwrap();

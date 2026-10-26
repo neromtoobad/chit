@@ -34,13 +34,21 @@ struct Log(Vec<Step>);
 impl Log {
     /// Records a step and returns whether it passed.
     fn check(&mut self, id: &'static str, label: impl Into<String>, ok: bool) -> bool {
-        self.0.push(Step { id, label: label.into(), ok: Some(ok) });
+        self.0.push(Step {
+            id,
+            label: label.into(),
+            ok: Some(ok),
+        });
         ok
     }
 
     fn skip(&mut self, ids: &[(&'static str, &str)]) {
         for (id, label) in ids {
-            self.0.push(Step { id, label: label.to_string(), ok: None });
+            self.0.push(Step {
+                id,
+                label: label.to_string(),
+                ok: None,
+            });
         }
     }
 }
@@ -58,10 +66,22 @@ pub fn verify_with_steps(tx: &Transaction, d: &Disclosure) -> Report {
     let mut log = Log(Vec::new());
     let actual = tx.txid();
     let short = |s: String| format!("{}…{}", &s[..8], &s[s.len() - 8..]);
-    if log.check("txid", format!("Transaction hashes to its txid {}", short(actual.to_string())), actual == d.txid) {
+    if log.check(
+        "txid",
+        format!(
+            "Transaction hashes to its txid {}",
+            short(actual.to_string())
+        ),
+        actual == d.txid,
+    ) {
         let actions = bundle_actions(tx, d.pool);
         let found = actions.get(d.action as usize);
-        let label = format!("Output {} exists in the {} bundle ({} actions)", d.action, d.pool.name(), actions.len());
+        let label = format!(
+            "Output {} exists in the {} bundle ({} actions)",
+            d.action,
+            d.pool.name(),
+            actions.len()
+        );
         if log.check("action", label, found.is_some()) {
             let action = found.unwrap();
             match d.pool {
@@ -73,7 +93,10 @@ pub fn verify_with_steps(tx: &Transaction, d: &Disclosure) -> Report {
             log.skip(&NOTE_STEPS);
         }
     } else {
-        log.skip(&[("action", "Output exists in the bundle"), ("key", "Chit key material decodes")]);
+        log.skip(&[
+            ("action", "Output exists in the bundle"),
+            ("key", "Chit key material decodes"),
+        ]);
         log.skip(&NOTE_STEPS);
     }
 
@@ -85,11 +108,23 @@ pub fn verify_with_steps(tx: &Transaction, d: &Disclosure) -> Report {
         Ok(_) => Err(Error::Invalid),
         Err(e) => Err(e),
     };
-    log.check("official", "zcash_note_encryption recovery agrees", steps_ok && result.is_ok());
-    Report { steps: log.0, result }
+    log.check(
+        "official",
+        "zcash_note_encryption recovery agrees",
+        steps_ok && result.is_ok(),
+    );
+    Report {
+        steps: log.0,
+        result,
+    }
 }
 
-fn note_steps<V: DomainVersion>(log: &mut Log, action: &Action<impl Sized>, key: &KeyMaterial, lead: u8) {
+fn note_steps<V: DomainVersion>(
+    log: &mut Log,
+    action: &Action<impl Sized>,
+    key: &KeyMaterial,
+    lead: u8,
+) {
     type D<V> = NoteEncryptionDomain<V>;
     let domain = D::<V>::for_action(action);
 
@@ -103,7 +138,11 @@ fn note_steps<V: DomainVersion>(log: &mut Log, action: &Action<impl Sized>, key:
             let ok = ChaCha20Poly1305::new(ock.into())
                 .decrypt_inout_detached(&Nonce::default(), &[], (&mut op.0[..]).into(), &tag.into())
                 .is_ok();
-            if !log.check("key", "Outgoing ciphertext opens with the chit's ock (ChaCha20-Poly1305)", ok) {
+            if !log.check(
+                "key",
+                "Outgoing ciphertext opens with the chit's ock (ChaCha20-Poly1305)",
+                ok,
+            ) {
                 log.skip(&NOTE_STEPS);
                 return;
             }
@@ -115,11 +154,19 @@ fn note_steps<V: DomainVersion>(log: &mut Log, action: &Action<impl Sized>, key:
     let esk = D::<V>::extract_esk(&op);
     let (pk_d, esk) = match (pk_d, esk) {
         (Some(p), Some(e)) => {
-            log.check("keys", "pk_d is a Pallas point and esk a valid scalar", true);
+            log.check(
+                "keys",
+                "pk_d is a Pallas point and esk a valid scalar",
+                true,
+            );
             (p, e)
         }
         _ => {
-            log.check("keys", "pk_d is a Pallas point and esk a valid scalar", false);
+            log.check(
+                "keys",
+                "pk_d is a Pallas point and esk a valid scalar",
+                false,
+            );
             log.skip(&NOTE_STEPS);
             return;
         }
@@ -134,7 +181,15 @@ fn note_steps<V: DomainVersion>(log: &mut Log, action: &Action<impl Sized>, key:
     };
     let opened = ChaCha20Poly1305::new_from_slice(sym.as_ref())
         .ok()
-        .and_then(|c| c.decrypt_inout_detached(&Nonce::default(), &[], plaintext.as_mut().into(), &tag.into()).ok())
+        .and_then(|c| {
+            c.decrypt_inout_detached(
+                &Nonce::default(),
+                &[],
+                plaintext.as_mut().into(),
+                &tag.into(),
+            )
+            .ok()
+        })
         .is_some();
     if !log.check("note", "Note ciphertext opens with KDF([esk]·pk_d)", opened) {
         log.skip(&NOTE_STEPS[1..]);
@@ -143,7 +198,11 @@ fn note_steps<V: DomainVersion>(log: &mut Log, action: &Action<impl Sized>, key:
 
     let pool = if lead == 0x03 { "Ironwood" } else { "Orchard" };
     let version_ok = plaintext.as_ref().first() == Some(&lead);
-    if !log.check("version", format!("Note version 0x{lead:02x} matches the {pool} pool"), version_ok) {
+    if !log.check(
+        "version",
+        format!("Note version 0x{lead:02x} matches the {pool} pool"),
+        version_ok,
+    ) {
         log.skip(&NOTE_STEPS[2..]);
         return;
     }

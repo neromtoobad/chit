@@ -5,8 +5,37 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --release -- -D warnings
+
   test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Unit, mainnet-fixture, end-to-end and property tests (thousands of random inputs).
+      - run: cargo test --workspace --release
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -14,7 +43,6 @@ jobs:
           targets: wasm32-unknown-unknown
           components: llvm-tools
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
@@ -24,7 +52,27 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: ./scripts/build.sh
+      - name: wasm size budget (1.2 MB)
+        run: test $(stat -c%s web/pkg/chit_wasm_bg.wasm) -lt 1200000
+      - run: ./scripts/npm.sh
       - uses: actions/upload-artifact@v4
         with:
           name: site
           path: web/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm
+          path: npm/*.tgz
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t chit .
+      - name: smoke-test the image
+        run: |
+          docker run -d --name chit -p 8787:8787 chit
+          for i in $(seq 30); do curl -sf localhost:8787/v1/health && break; sleep 1; done
+          curl -sf localhost:8787/v1/inspect/zout1qypqqqpp4sckleylqe5cleu303gy5m3t8lcsgzsa4dua3ljwdqz26ccwu4xgqhxzl0tkj2dne20skvhgpexyfvpxgfdzjm2uzkasgvp5t9v9y077t3g
+          curl -sf localhost:8787/ | grep -q '<div id="app">'

@@ -17,9 +17,18 @@ struct Memo {
 impl From<&MemoView> for Memo {
     fn from(m: &MemoView) -> Self {
         match m {
-            MemoView::Empty => Memo { kind: "empty", value: String::new() },
-            MemoView::Text(t) => Memo { kind: "text", value: t.clone() },
-            MemoView::Binary(h) => Memo { kind: "binary", value: h.clone() },
+            MemoView::Empty => Memo {
+                kind: "empty",
+                value: String::new(),
+            },
+            MemoView::Text(t) => Memo {
+                kind: "text",
+                value: t.clone(),
+            },
+            MemoView::Binary(h) => Memo {
+                kind: "binary",
+                value: h.clone(),
+            },
         }
     }
 }
@@ -116,7 +125,15 @@ pub fn verify(tx_hex: &str, disclosure: &str) -> Result<String, JsError> {
     let d = Disclosure::decode(disclosure).map_err(|e| JsError::new(&e.to_string()))?;
     let tx = tx_from_hex(tx_hex)?;
     let r = chit_core::verify_with_steps(&tx, &d);
-    let steps = r.steps.into_iter().map(|s| StepJson { id: s.id, label: s.label, ok: s.ok }).collect();
+    let steps = r
+        .steps
+        .into_iter()
+        .map(|s| StepJson {
+            id: s.id,
+            label: s.label,
+            ok: s.ok,
+        })
+        .collect();
     Ok(json(&match r.result {
         Ok(v) => ReportJson {
             valid: true,
@@ -133,7 +150,12 @@ pub fn verify(tx_hex: &str, disclosure: &str) -> Result<String, JsError> {
             }),
             steps,
         },
-        Err(e) => ReportJson { valid: false, error: Some(e.to_string()), verified: None, steps },
+        Err(e) => ReportJson {
+            valid: false,
+            error: Some(e.to_string()),
+            verified: None,
+            steps,
+        },
     }))
 }
 
@@ -142,10 +164,15 @@ pub fn verify(tx_hex: &str, disclosure: &str) -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn same_receiver(a: &str, b: &str, network: &str) -> Result<bool, JsError> {
     let n = parse_network(network)?;
-    Ok(match (chit_core::orchard_receiver(a, n), chit_core::orchard_receiver(b, n)) {
-        (Some(x), Some(y)) => x == y,
-        _ => false,
-    })
+    Ok(
+        match (
+            chit_core::orchard_receiver(a, n),
+            chit_core::orchard_receiver(b, n),
+        ) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        },
+    )
 }
 
 /// Whether an address can receive Orchard/Ironwood payments that a chit can prove.
@@ -238,5 +265,7 @@ pub fn burns(tx_hex: &str, network: &str) -> Result<String, JsError> {
             disclosure: f.disclosure.clone(),
         })
         .collect();
-    Ok(json(&serde_json::json!({ "txid": tx.txid().to_string(), "burns": out })))
+    Ok(json(
+        &serde_json::json!({ "txid": tx.txid().to_string(), "burns": out }),
+    ))
 }

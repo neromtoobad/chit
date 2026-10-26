@@ -1,0 +1,48 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build -p chit-cli --release --target ${{ matrix.target }}
+      - run: tar -czf chit-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release chit
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: chit-${{ matrix.target }}.tar.gz
+
+  web-and-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: llvm-tools
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: ./scripts/build.sh && ./scripts/npm.sh
+      - run: tar -czf chit-web.tar.gz -C web/dist .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            chit-web.tar.gz
+            npm/chit-zcash-*.tgz

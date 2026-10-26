@@ -185,6 +185,54 @@ const report = verify(rawTxHex, 'zout1…');   // { valid, verified, steps: [{ l
 <chit-verify chit="zout1…"></chit-verify>
 ```
 
+## Run it yourself (no third parties)
+
+The hosted site reads transactions from Blockchair's public API, which learns the txids
+you look up. To remove every third party, run `chit serve` next to your own Zebra node:
+
+```bash
+chit serve --rpc http://user:pass@127.0.0.1:8232 --web web/dist
+```
+
+Or run the Docker image:
+
+```bash
+docker run -p 8787:8787 chit --rpc http://user:pass@your-zebra:8232
+```
+
+- **One binary.** It serves the web app and a JSON API from the same origin. The app
+  notices `/v1/health` and fetches transactions from your node instead of Blockchair.
+  Its Content-Security-Policy then allows only that origin, plus drand for sealed
+  predictions.
+- **The API** is described in [`cli/openapi.json`](cli/openapi.json):
+  - `GET /v1/verify/{chit}`, `POST /v1/verify`: verify a chit, with every check reported;
+  - `GET /v1/inspect/{chit}`;
+  - `GET /v1/tx/{txid}`;
+  - `GET /v1/burns/{txid}`;
+  - `POST /v1/scan`: takes a viewing key, so only call your own instance.
+
+  Merchants and support desks can wire it into their own systems.
+- **The CLI** takes `--rpc` (or `CHIT_RPC`) too: `chit check zout1… --rpc …`.
+- **Hardening:**
+  - Mined transactions are cached (in memory on the server, in IndexedDB in the browser).
+  - Requests are de-duplicated and retried with backoff on rate limits.
+  - Bodies are capped at 2 MB.
+  - CORS is off unless you pass `--cors ORIGIN`.
+- **Offline:** a service worker caches the app shell, WebAssembly and fonts, so Chit opens
+  and verifies pasted transactions with no network.
+
+## Quality
+
+- **Property tests** (`core/tests/robustness.rs`), each run on 512 random cases:
+  - no input crashes the core: arbitrary strings, bytes, truncated or bit-flipped
+    transactions, junk viewing keys;
+  - every one-character change to a chit is caught by its checksum;
+  - random keys never verify.
+- **CI:** `cargo fmt --check`, `clippy -D warnings`, the full test suite, a RustSec
+  advisory audit, a WASM size budget, an npm pack, and a Docker build plus smoke test.
+- **Releases:** tagging `v*` publishes CLI binaries (Linux x86-64, macOS arm64), the web
+  bundle and the npm tarball.
+
 ## Build
 
 You need Rust (stable) with the `wasm32-unknown-unknown` target, `wasm-pack`, the

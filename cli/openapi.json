@@ -1,0 +1,25 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "chit serve",
+    "version": "0.1.0",
+    "description": "Self-hostable verification API for Zcash Orchard/Ironwood output disclosures (chits) and Burn Book burns. Run it next to your own Zebra node (--rpc) so no lookup leaves your infrastructure."
+  },
+  "paths": {
+    "/v1/health": { "get": { "summary": "Liveness and which transaction source is in use", "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "source": { "type": "string", "enum": ["zebra-rpc", "blockchair"] }, "version": { "type": "string" } } } } } } } } },
+    "/v1/inspect/{chit}": { "get": { "summary": "Read which transaction and output a chit names, without verifying it", "parameters": [{ "$ref": "#/components/parameters/chit" }], "responses": { "200": { "description": "header" }, "400": { "$ref": "#/components/responses/bad" } } } },
+    "/v1/verify/{chit}": { "get": { "summary": "Fetch the named transaction from the configured source and verify the chit, reporting every check", "parameters": [{ "$ref": "#/components/parameters/chit" }], "responses": { "200": { "$ref": "#/components/responses/report" }, "400": { "$ref": "#/components/responses/bad" }, "502": { "$ref": "#/components/responses/upstream" } } } },
+    "/v1/verify": { "post": { "summary": "Verify a chit, optionally against a raw transaction you supply", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["chit"], "properties": { "chit": { "type": "string", "example": "zout1…" }, "tx_hex": { "type": "string", "description": "Raw transaction. When given, nothing is fetched and mined is reported as supplied." } } } } } }, "responses": { "200": { "$ref": "#/components/responses/report" }, "400": { "$ref": "#/components/responses/bad" }, "502": { "$ref": "#/components/responses/upstream" } } } },
+    "/v1/scan": { "post": { "summary": "List the outputs a Unified Full Viewing Key can disclose in a transaction. Takes a viewing key: only call your own instance.", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ufvk"], "properties": { "ufvk": { "type": "string" }, "txid": { "type": "string" }, "tx_hex": { "type": "string" }, "network": { "type": "string", "enum": ["main", "test"] } } } } } }, "responses": { "200": { "description": "outputs with a chit each" }, "400": { "$ref": "#/components/responses/bad" } } } },
+    "/v1/tx/{txid}": { "get": { "summary": "The raw transaction from the configured source, with its block height", "parameters": [{ "name": "txid", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }], "responses": { "200": { "description": "hex, height, confirmations, source" }, "502": { "$ref": "#/components/responses/upstream" } } } },
+    "/v1/burns/{txid}": { "get": { "summary": "Burn Book posts in a transaction (outputs to the provably unspendable Burn Book address)", "parameters": [{ "name": "txid", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }], "responses": { "200": { "description": "burns" }, "502": { "$ref": "#/components/responses/upstream" } } } }
+  },
+  "components": {
+    "parameters": { "chit": { "name": "chit", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^zout(test)?1[02-9ac-hj-np-z]+$" } } },
+    "responses": {
+      "report": { "description": "Verification report", "content": { "application/json": { "schema": { "type": "object", "properties": { "valid": { "type": "boolean" }, "error": { "type": ["string", "null"] }, "verified": { "type": ["object", "null"], "properties": { "txid": { "type": "string" }, "pool": { "type": "string" }, "action": { "type": "integer" }, "direction": { "type": "string" }, "value_zat": { "type": "integer" }, "recipient": { "type": "string" }, "memo": { "type": "object" } } }, "steps": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "ok": { "type": ["boolean", "null"] } } } }, "mined": { "type": "object", "properties": { "height": { "type": ["integer", "null"] }, "confirmations": { "type": ["integer", "null"] }, "source": { "type": "string" } } } } } } } },
+      "bad": { "description": "Malformed input", "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } } },
+      "upstream": { "description": "The transaction source failed or does not know the txid" }
+    }
+  }
+}

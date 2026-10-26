@@ -32,8 +32,8 @@ use orchard::{
 use zcash_keys::{address::UnifiedAddress, keys::UnifiedFullViewingKey};
 use zcash_note_encryption::{
     try_note_decryption, try_output_recovery_with_ock, try_output_recovery_with_ovk,
-    try_output_recovery_with_pkd_esk, Domain, OutPlaintextBytes, OutgoingCipherKey,
-    ShieldedOutput, OUT_PLAINTEXT_SIZE,
+    try_output_recovery_with_pkd_esk, Domain, OutPlaintextBytes, OutgoingCipherKey, ShieldedOutput,
+    OUT_PLAINTEXT_SIZE,
 };
 pub use zcash_primitives::transaction::Transaction;
 use zcash_protocol::{
@@ -55,7 +55,10 @@ pub enum Error {
     Encoding(String),
     Transaction(String),
     Key(String),
-    TxidMismatch { expected: String, actual: String },
+    TxidMismatch {
+        expected: String,
+        actual: String,
+    },
     NoSuchAction,
     /// The output did not open with the disclosed key, or failed a validity check.
     Invalid,
@@ -68,7 +71,10 @@ impl std::fmt::Display for Error {
             Error::Transaction(e) => write!(f, "bad transaction: {e}"),
             Error::Key(e) => write!(f, "bad viewing key: {e}"),
             Error::TxidMismatch { expected, actual } => {
-                write!(f, "transaction is {actual}, but the disclosure is for {expected}")
+                write!(
+                    f,
+                    "transaction is {actual}, but the disclosure is for {expected}"
+                )
             }
             Error::NoSuchAction => write!(f, "the transaction has no such output"),
             Error::Invalid => write!(f, "the disclosure does not open this output"),
@@ -273,12 +279,19 @@ pub fn parse_txid(s: &str) -> Result<TxId, Error> {
     Ok(TxId::from_bytes(bytes))
 }
 
-pub(crate) fn bundle_actions(tx: &Transaction, pool: Pool) -> Vec<&Action<orchard::primitives::redpallas::Signature<orchard::primitives::redpallas::SpendAuth>>> {
+pub(crate) fn bundle_actions(
+    tx: &Transaction,
+    pool: Pool,
+) -> Vec<
+    &Action<orchard::primitives::redpallas::Signature<orchard::primitives::redpallas::SpendAuth>>,
+> {
     let bundle = match pool {
         Pool::Orchard => tx.orchard_bundle(),
         Pool::Ironwood => tx.ironwood_bundle(),
     };
-    bundle.map(|b| b.actions().iter().collect()).unwrap_or_default()
+    bundle
+        .map(|b| b.actions().iter().collect())
+        .unwrap_or_default()
 }
 
 fn recipient_string(addr: Address, network: NetworkType) -> String {
@@ -303,7 +316,10 @@ pub fn orchard_receiver(address: &str, network: NetworkType) -> Option<[u8; 43]>
 /// Whether a verified disclosure paid `address` (compared by Orchard receiver, so a full
 /// Unified Address with Sapling and transparent receivers still matches).
 pub fn paid_to(v: &Verified, address: &str) -> bool {
-    match (orchard_receiver(&v.recipient, v.network), orchard_receiver(address, v.network)) {
+    match (
+        orchard_receiver(&v.recipient, v.network),
+        orchard_receiver(address, v.network),
+    ) {
         (Some(a), Some(b)) => a == b,
         _ => false,
     }
@@ -407,7 +423,14 @@ pub fn scan_fvk(tx: &Transaction, fvk: &FullViewingKey, network: NetworkType) ->
     found
 }
 
-type Hit = (Direction, bool, orchard::Note, Address, [u8; 512], KeyMaterial);
+type Hit = (
+    Direction,
+    bool,
+    orchard::Note,
+    Address,
+    [u8; 512],
+    KeyMaterial,
+);
 
 fn scan_action<V: DomainVersion>(action: &Action<impl Sized>, fvk: &FullViewingKey) -> Option<Hit> {
     let domain = NoteEncryptionDomain::<V>::for_action(action);
@@ -440,7 +463,14 @@ fn scan_action<V: DomainVersion>(action: &Action<impl Sized>, fvk: &FullViewingK
                 &action.cmx().to_bytes(),
                 &ShieldedOutput::<NoteEncryptionDomain<V>>::ephemeral_key(action),
             );
-            return Some((Direction::Outgoing, false, note, addr, memo, KeyMaterial::Ock(ock.0)));
+            return Some((
+                Direction::Outgoing,
+                false,
+                note,
+                addr,
+                memo,
+                KeyMaterial::Ock(ock.0),
+            ));
         }
     }
     None

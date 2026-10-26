@@ -7,6 +7,10 @@
 //! The viewing key is read from a file (or `CHIT_UFVK`), never from the command line,
 //! so it does not end up in shell history or the process list.
 
+mod report;
+mod serve;
+mod source;
+
 use chit_core::{Direction, Disclosure, MemoView, Pool, Transaction};
 use std::process::ExitCode;
 use zcash_protocol::consensus::NetworkType;
@@ -17,8 +21,12 @@ const USAGE: &str = "usage:
                                                         list outputs your viewing key can disclose
   chit inspect <zout…>                                   show which transaction a disclosure names
   chit check-burn <txid>                                list the Burn Book posts in a mined transaction
+  chit serve [--listen ADDR] [--web DIR] [--cors ORIGIN] [--threads N]
+                                                        run the verification API (see /openapi.json)
 
-  --tx FILE    raw transaction hex (\"-\" for stdin) instead of fetching it from Blockchair
+  --rpc URL    fetch transactions from your own Zebra node, e.g. http://user:pass@127.0.0.1:8232
+               (default: Blockchair's public API, which learns the txids you look up)
+  --tx FILE    raw transaction hex (\"-\" for stdin) instead of fetching it
   --json       machine-readable output
   The viewing key can also come from the CHIT_UFVK environment variable.";
 
@@ -26,17 +34,43 @@ struct Args {
     positional: Vec<String>,
     tx_file: Option<String>,
     key_file: Option<String>,
+    rpc: Option<String>,
+    listen: String,
+    web: Option<std::path::PathBuf>,
+    cors: Option<String>,
+    threads: usize,
     testnet: bool,
     json: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { positional: vec![], tx_file: None, key_file: None, testnet: false, json: false };
+    let mut a = Args {
+        positional: vec![],
+        tx_file: None,
+        key_file: None,
+        rpc: std::env::var("CHIT_RPC").ok(),
+        listen: "127.0.0.1:8787".into(),
+        web: None,
+        cors: None,
+        threads: 4,
+        testnet: false,
+        json: false,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--tx" => a.tx_file = Some(it.next().ok_or("--tx needs a file")?),
             "--key-file" => a.key_file = Some(it.next().ok_or("--key-file needs a file")?),
+            "--rpc" => a.rpc = Some(it.next().ok_or("--rpc needs a URL")?),
+            "--listen" => a.listen = it.next().ok_or("--listen needs an address")?,
+            "--web" => a.web = Some(it.next().ok_or("--web needs a directory")?.into()),
+            "--cors" => a.cors = Some(it.next().ok_or("--cors needs an origin")?),
+            "--threads" => {
+                a.threads = it
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .ok_or("--threads needs a number")?
+            }
             "--testnet" => a.testnet = true,
             "--json" => a.json = true,
             "-h" | "--help" => return Err(String::new()),
@@ -57,33 +91,8 @@ fn read_input(path: &str) -> Result<String, String> {
     }
 }
 
-struct Fetched {
-    hex: String,
-    height: Option<u64>,
-}
-
-fn fetch(network: NetworkType, txid: &str) -> Result<Fetched, String> {
-    if network != NetworkType::Main {
-        return Err("no public testnet explorer is wired in; pass --tx FILE".into());
-    }
-    let get = |url: String| -> Result<serde_json::Value, String> {
-        ureq::get(&url)
-            .call()
-            .map_err(|e| format!("explorer: {e}"))?
-            .body_mut()
-            .read_json()
-            .map_err(|e| format!("explorer: {e}"))
-    };
-    let raw = get(format!("https://api.blockchair.com/zcash/raw/transaction/{txid}"))?;
-    let hex = raw["data"][txid]["raw_transaction"]
-        .as_str()
-        .ok_or("the explorer does not know this transaction")?
-        .to_string();
-    let height = get(format!("https://api.blockchair.com/zcash/dashboards/transaction/{txid}"))
-        .ok()
-        .and_then(|d| d["data"][txid]["transaction"]["block_id"].as_u64())
-        .filter(|h| *h > 0);
-    Ok(Fetched { hex, height })
+fn fetch(a: &Args, network: NetworkType, txid: &str) -> Result<source::Fetched, String> {
+    source::from_flag(a.rpc.as_deref())?.fetch(network, txid)
 }
 
 fn load_tx(hex: &str) -> Result<Transaction, String> {
@@ -99,23 +108,10 @@ fn memo_text(m: &MemoView) -> String {
     match m {
         MemoView::Empty => "(none)".into(),
         MemoView::Text(t) => t.clone(),
-        MemoView::Binary(h) if h.len() > 48 => format!("binary {}… ({} bytes)", &h[..48], h.len() / 2),
+        MemoView::Binary(h) if h.len() > 48 => {
+            format!("binary {}… ({} bytes)", &h[..48], h.len() / 2)
+        }
         MemoView::Binary(h) => format!("binary {h}"),
-    }
-}
-
-fn memo_json(m: &MemoView) -> serde_json::Value {
-    match m {
-        MemoView::Empty => serde_json::json!({ "kind": "empty" }),
-        MemoView::Text(t) => serde_json::json!({ "kind": "text", "value": t }),
-        MemoView::Binary(h) => serde_json::json!({ "kind": "binary", "value": h }),
-    }
-}
-
-fn dir(d: Direction) -> &'static str {
-    match d {
-        Direction::Outgoing => "outgoing",
-        Direction::Incoming => "incoming",
     }
 }
 
@@ -126,40 +122,65 @@ fn pool(p: Pool) -> &'static str {
 fn check(a: &Args) -> Result<(), String> {
     let s = a.positional.get(1).ok_or("check needs a disclosure")?;
     let d = Disclosure::decode(s).map_err(|e| e.to_string())?;
-    let txid = d.txid.to_string();
-    let (hex, height, source) = match &a.tx_file {
-        Some(f) => (read_input(f)?, None, "the transaction you supplied"),
-        None => {
-            let f = fetch(d.network, &txid)?;
-            (f.hex, f.height, "Blockchair")
-        }
+    let fetched = match &a.tx_file {
+        Some(_) => None,
+        None => Some(fetch(a, d.network, &d.txid.to_string())?),
     };
-    let v = chit_core::verify(&load_tx(&hex)?, &d).map_err(|e| format!("VOID: {e}"))?;
+    let hex = match &a.tx_file {
+        Some(f) => read_input(f)?,
+        None => fetched.as_ref().unwrap().hex.clone(),
+    };
+    let r = chit_core::verify_with_steps(&load_tx(&hex)?, &d);
     if a.json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "valid": true, "txid": v.txid, "pool": pool(v.pool), "action": v.action,
-                "direction": dir(v.direction), "value_zat": v.value_zat,
-                "recipient": v.recipient, "memo": memo_json(&v.memo), "height": height,
-            })
-        );
-    } else {
-        println!("VALID  {}", zec(v.value_zat));
-        println!("  to      {}", v.recipient);
-        println!("  memo    {}", memo_text(&v.memo));
-        println!("  tx      {} ({} output {})", v.txid, pool(v.pool), v.action);
-        if let Some(h) = height {
-            println!("  mined   block {h}");
-        }
-        println!("  by      the {}", if v.direction == Direction::Outgoing { "payer" } else { "payee" });
-        println!("  source  {source}");
+        println!("{}", report::report(&r, fetched.as_ref()));
+        return if r.result.is_ok() {
+            Ok(())
+        } else {
+            Err("VOID".into())
+        };
     }
+    for s in &r.steps {
+        let mark = match s.ok {
+            Some(true) => "✓",
+            Some(false) => "✕",
+            None => "–",
+        };
+        println!("  {mark} {}", s.label);
+    }
+    let v = r.result.map_err(|e| format!("VOID: {e}"))?;
+    println!("VALID  {}", zec(v.value_zat));
+    println!("  to      {}", v.recipient);
+    println!("  memo    {}", memo_text(&v.memo));
+    println!(
+        "  tx      {} ({} output {})",
+        v.txid,
+        pool(v.pool),
+        v.action
+    );
+    match &fetched {
+        Some(f) => match f.height {
+            Some(h) => println!("  mined   block {h} ({})", f.source),
+            None => println!("  mined   NOT YET ({})", f.source),
+        },
+        None => println!("  mined   unknown: checked against the transaction you supplied"),
+    }
+    println!(
+        "  by      the {}",
+        if v.direction == Direction::Outgoing {
+            "payer"
+        } else {
+            "payee"
+        }
+    );
     Ok(())
 }
 
 fn make(a: &Args) -> Result<(), String> {
-    let network = if a.testnet { NetworkType::Test } else { NetworkType::Main };
+    let network = if a.testnet {
+        NetworkType::Test
+    } else {
+        NetworkType::Main
+    };
     let key = match (&a.key_file, std::env::var("CHIT_UFVK")) {
         (Some(f), _) => read_input(f)?,
         (None, Ok(k)) => k,
@@ -167,30 +188,33 @@ fn make(a: &Args) -> Result<(), String> {
     };
     let hex = match (&a.tx_file, a.positional.get(1)) {
         (Some(f), _) => read_input(f)?,
-        (None, Some(txid)) => fetch(network, &txid.to_lowercase())?.hex,
+        (None, Some(txid)) => fetch(a, network, &txid.to_lowercase())?.hex,
         _ => return Err("make needs a txid or --tx FILE".into()),
     };
     let found = chit_core::scan(&load_tx(&hex)?, &key, network).map_err(|e| e.to_string())?;
     if a.json {
-        let out: Vec<_> = found
-            .iter()
-            .map(|f| {
-                serde_json::json!({
-                    "pool": pool(f.pool), "action": f.action, "direction": dir(f.direction),
-                    "change": f.change, "value_zat": f.value_zat, "recipient": f.recipient,
-                    "memo": memo_json(&f.memo), "disclosure": f.disclosure,
-                })
-            })
-            .collect();
-        println!("{}", serde_json::Value::Array(out));
+        println!("{}", report::found(&found));
         return Ok(());
     }
     if found.is_empty() {
-        return Err("this viewing key has no Orchard or Ironwood outputs in that transaction".into());
+        return Err(
+            "this viewing key has no Orchard or Ironwood outputs in that transaction".into(),
+        );
     }
     for f in &found {
-        let label = if f.change { "change" } else if f.direction == Direction::Outgoing { "you paid" } else { "you received" };
-        println!("{label:<12} {}  ({} output {})", zec(f.value_zat), pool(f.pool), f.action);
+        let label = if f.change {
+            "change"
+        } else if f.direction == Direction::Outgoing {
+            "you paid"
+        } else {
+            "you received"
+        };
+        println!(
+            "{label:<12} {}  ({} output {})",
+            zec(f.value_zat),
+            pool(f.pool),
+            f.action
+        );
         println!("  to    {}", f.recipient);
         println!("  memo  {}", memo_text(&f.memo));
         println!("  chit  {}\n", f.disclosure);
@@ -199,15 +223,24 @@ fn make(a: &Args) -> Result<(), String> {
 }
 
 fn check_burn(a: &Args) -> Result<(), String> {
-    let txid = a.positional.get(1).ok_or("check-burn needs a txid")?.to_lowercase();
-    let f = fetch(NetworkType::Main, &txid)?;
+    let txid = a
+        .positional
+        .get(1)
+        .ok_or("check-burn needs a txid")?
+        .to_lowercase();
+    let f = fetch(a, NetworkType::Main, &txid)?;
     let height = f.height.ok_or("not mined yet")?;
     let burns = chit_core::burn::burns_in(&load_tx(&f.hex)?, NetworkType::Main);
     if burns.is_empty() {
         return Err("no output to the Burn Book address in that transaction".into());
     }
     for b in &burns {
-        println!("burn  {}  block {height}  output {}  {}", zec(b.value_zat), b.action, memo_text(&b.memo));
+        println!(
+            "burn  {}  block {height}  output {}  {}",
+            zec(b.value_zat),
+            b.action,
+            memo_text(&b.memo)
+        );
     }
     Ok(())
 }
@@ -215,10 +248,24 @@ fn check_burn(a: &Args) -> Result<(), String> {
 fn inspect(a: &Args) -> Result<(), String> {
     let s = a.positional.get(1).ok_or("inspect needs a disclosure")?;
     let d = Disclosure::decode(s).map_err(|e| e.to_string())?;
-    println!("network  {}", if d.network == NetworkType::Main { "mainnet" } else { "testnet" });
+    println!(
+        "network  {}",
+        if d.network == NetworkType::Main {
+            "mainnet"
+        } else {
+            "testnet"
+        }
+    );
     println!("tx       {}", d.txid);
     println!("output   {} {}", pool(d.pool), d.action);
-    println!("by       the {}", if d.key.direction() == Direction::Outgoing { "payer (ock)" } else { "payee (pk_d, esk)" });
+    println!(
+        "by       the {}",
+        if d.key.direction() == Direction::Outgoing {
+            "payer (ock)"
+        } else {
+            "payee (pk_d, esk)"
+        }
+    );
     Ok(())
 }
 
@@ -228,6 +275,15 @@ fn main() -> ExitCode {
         Some("make") | Some("scan") => make(&a),
         Some("inspect") => inspect(&a),
         Some("check-burn") => check_burn(&a),
+        Some("serve") => serve::run(
+            source::from_flag(a.rpc.as_deref())?,
+            serve::Config {
+                web: a.web.clone(),
+                listen: a.listen.clone(),
+                cors: a.cors.clone(),
+                threads: a.threads,
+            },
+        ),
         _ => Err(String::new()),
     });
     match result {
