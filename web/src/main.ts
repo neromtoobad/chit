@@ -36,7 +36,7 @@ function route(): Route {
   const [head, a, b, c] = parts;
   if (head === 'burn') {
     if (a === 'new') return { view: 'burnNew', preset: b ?? '' };
-    if (a === 'p' && b) return { view: 'burnPost', id: b };
+    if ((a === 'p' || a === 'tx') && b) return { view: 'burnPost', id: b };
     if (a === 'claim') return { view: 'burnClaim' };
     if (a === 'proof') return { view: 'burnProof' };
     return { view: 'burn', tab: a === 'new-posts' ? 'new' : a === 'called-it' ? 'sealed' : 'top' };

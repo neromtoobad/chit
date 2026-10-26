@@ -259,8 +259,27 @@ export async function postView(shell: Shell, id: string) {
   const body = h('div', { class: 'pair' }, h('p', { class: 'muted' }, 'Opening…'));
   shell(h('div', { class: 'wide' }, h('a', { class: 'link', href: '#/burn' }, '← Burn Book'), body));
   const w = await wall();
-  const post = w.posts.find((p) => p.id === id) ?? w.posts.flatMap((p) => [...p.replies, ...p.boosts].map((b) => ({ ...b, boosted: 0, total: b.value, replies: [], boosts: [] }) as Post)).find((p) => p.id === id);
-  if (!post) return body.replaceChildren(h('p', { class: 'muted' }, 'No such post on the wall.'));
+  const loose = (b: Burn): Post => ({ ...b, boosted: 0, total: b.value, replies: [], boosts: [] });
+  let post: Post | undefined;
+  const full = id.match(/^([0-9a-f]{64})\.(\d{1,3})$/);
+  if (full) {
+    // A shareable link carries the whole txid, so it opens straight from the chain,
+    // whether or not the burn is listed on the public wall yet.
+    const listed = w.posts.find((p) => p.txid === full[1] && p.action === Number(full[2]));
+    if (listed) post = listed;
+    else {
+      try {
+        const tx = await fetchTx('main', full[1]);
+        const b = (await burnsIn(tx.hex, { height: tx.height, time: tx.time, specimen: false })).find((x) => x.action === Number(full[2]));
+        if (b) post = loose(b);
+      } catch (e) {
+        return body.replaceChildren(h('p', { class: 'muted' }, e instanceof Error ? e.message : String(e)));
+      }
+    }
+  } else {
+    post = w.posts.find((p) => p.id === id) ?? w.posts.flatMap((p) => [...p.replies, ...p.boosts].map(loose)).find((p) => p.id === id);
+  }
+  if (!post) return body.replaceChildren(h('p', { class: 'muted' }, 'No such burn. It may not be mined yet, or the link is wrong.'));
   // Each post is a payee-side chit made with the public key, so it gets the full check log.
   let report: zpd.Report | null = null;
   try {
@@ -387,7 +406,18 @@ export function claimView(shell: Shell) {
             out.replaceChildren(h('p', { class: 'muted' }, 'Looking for your burn…'));
             try {
               const found = await claim(input.value);
-              out.replaceChildren(h('div', { class: 'ok-box' }, h('b', {}, `Found ${found.length} burn${found.length > 1 ? 's' : ''}.`), ...found.map((b) => h('p', {}, h('a', { href: `#/burn/p/${b.id}` }, `🔥 ${zecString(b.value)} ZEC · “${short(b.text || '(boost)', 40, 0)}”`)))));
+              out.replaceChildren(
+                h(
+                  'div',
+                  { class: 'ok-box' },
+                  h('b', {}, `Verified: ${found.length} burn${found.length > 1 ? 's' : ''}, mined and paid to the black hole.`),
+                  ...found.map((b) => {
+                    const link = `${location.origin}${location.pathname}#/burn/tx/${b.txid}.${b.action}`;
+                    return h('p', {}, h('a', { href: `#/burn/tx/${b.txid}.${b.action}` }, `🔥 ${zecString(b.value)} ZEC · “${short(b.kind === 'sealed' ? '🔒 sealed prediction' : b.text || '(boost)', 40, 0)}”`), ' ', h('button', { class: 'btn tiny', type: 'button', onclick: (ev: Event) => copy(link, ev.currentTarget as HTMLElement) }, 'Copy share link'));
+                  }),
+                  h('p', { class: 'hint' }, 'The share link works for anyone right now: it reads your burn straight from the chain. It shows on this device’s wall already; the public wall lists burns once they are added to the index, which the maintainers do by hand during the hackathon. Send the txid to @neromtoobad to be listed.'),
+                ),
+              );
             } catch (err) {
               out.replaceChildren(h('div', { class: 'error' }, h('b', {}, err instanceof Error ? err.message : String(err))));
             }

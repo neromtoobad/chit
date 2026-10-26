@@ -16,6 +16,7 @@ const USAGE: &str = "usage:
   chit make  (<txid> | --tx FILE) --key-file FILE [--testnet]
                                                         list outputs your viewing key can disclose
   chit inspect <zout…>                                   show which transaction a disclosure names
+  chit check-burn <txid>                                list the Burn Book posts in a mined transaction
 
   --tx FILE    raw transaction hex (\"-\" for stdin) instead of fetching it from Blockchair
   --json       machine-readable output
@@ -197,6 +198,20 @@ fn make(a: &Args) -> Result<(), String> {
     Ok(())
 }
 
+fn check_burn(a: &Args) -> Result<(), String> {
+    let txid = a.positional.get(1).ok_or("check-burn needs a txid")?.to_lowercase();
+    let f = fetch(NetworkType::Main, &txid)?;
+    let height = f.height.ok_or("not mined yet")?;
+    let burns = chit_core::burn::burns_in(&load_tx(&f.hex)?, NetworkType::Main);
+    if burns.is_empty() {
+        return Err("no output to the Burn Book address in that transaction".into());
+    }
+    for b in &burns {
+        println!("burn  {}  block {height}  output {}  {}", zec(b.value_zat), b.action, memo_text(&b.memo));
+    }
+    Ok(())
+}
+
 fn inspect(a: &Args) -> Result<(), String> {
     let s = a.positional.get(1).ok_or("inspect needs a disclosure")?;
     let d = Disclosure::decode(s).map_err(|e| e.to_string())?;
@@ -212,6 +227,7 @@ fn main() -> ExitCode {
         Some("check") | Some("verify") => check(&a),
         Some("make") | Some("scan") => make(&a),
         Some("inspect") => inspect(&a),
+        Some("check-burn") => check_burn(&a),
         _ => Err(String::new()),
     });
     match result {
