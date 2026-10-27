@@ -55,7 +55,7 @@ export function boot() {
   }
   if (seen || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const log = h('pre', { class: 'boot-log' });
-  const screen = h('div', { class: 'boot', role: 'status', onclick: () => done() }, h('div', { class: 'boot-inner' }, log, h('span', { class: 'boot-skip' }, 'click to skip')));
+  const screen = h('div', { class: 'boot', role: 'status', onclick: () => done() }, h('div', { class: 'boot-inner' }, h('img', { class: 'boot-mark', src: '/mark.svg', alt: '', width: '60', height: '64' }), log, h('span', { class: 'boot-skip' }, 'click to skip')));
   document.body.append(screen);
   let closed = false;
   const done = () => {

@@ -4,7 +4,20 @@
   "description": "Prove one shielded Zcash payment without revealing your viewing key. Burn Book, Pay & prove, payout ledgers.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0d0c",
+  "background_color": "#050806",
   "theme_color": "#0b0d0c",
-  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }

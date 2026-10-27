@@ -84,7 +84,7 @@ function shell(...kids: Node[]) {
     h(
       'header',
       { class: 'top' },
-      h('a', { class: 'brand', href: '#/' }, h('i', {}), 'Chit'),
+      h('a', { class: 'brand', href: '#/', 'aria-label': 'Chit, home' }, h('img', { src: '/logo.svg', alt: 'Chit', width: '67', height: '16' })),
       h(
         'nav',
         {},

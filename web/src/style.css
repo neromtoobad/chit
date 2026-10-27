@@ -57,7 +57,8 @@ p { margin: 0 0 1em; }
 /* chrome */
 .top { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 24px 0 30px; }
 .brand { display: flex; gap: 10px; align-items: center; font: 400 23px var(--serif); color: var(--text); text-decoration: none; }
-.brand i { width: 17px; height: 21px; background: var(--paper); clip-path: polygon(0 0, 100% 0, 100% 84%, 80% 100%, 60% 84%, 40% 100%, 20% 84%, 0 100%); }
+.brand img { height: 30px; width: auto; display: block; filter: drop-shadow(0 0 10px rgba(236, 231, 218, .12)); }
+.brand:hover img { filter: drop-shadow(0 0 12px rgba(124, 245, 168, .35)); }
 nav { display: flex; gap: 2px; }
 nav a { color: var(--mute); text-decoration: none; padding: 7px 13px; font-size: 14px; font-weight: 550; border-radius: 6px; }
 nav a:hover { color: var(--text); }
@@ -465,6 +466,7 @@ header.top { position: relative; z-index: 3; }
 .boot-inner { width: min(560px, 90vw); }
 .boot-log { font: 13px/1.9 var(--mono); color: var(--green); text-shadow: 0 0 12px rgba(124, 245, 168, .6); margin: 0; min-height: 9em; white-space: pre-wrap; }
 .boot-log::after { content: '█'; animation: blink 1s steps(1) infinite; }
+.boot-mark { display: block; width: 60px; height: auto; margin-bottom: 22px; image-rendering: pixelated; animation: blink 1.2s steps(1) 2; }
 .boot-skip { font: 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
 @keyframes blink { 50% { opacity: 0; } }
 
