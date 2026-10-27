@@ -101,17 +101,19 @@ export async function burnsIn(hex: string, meta: { height: number | null; time: 
 
 // ---------- the index: which transactions hold burns ----------
 
+// Claims last for this tab only: a lasting list on the device would be a record of which
+// anonymous posts are yours.
 const CLAIMS = 'chit.burnbook.claims';
 const claimed = (): string[] => {
   try {
-    return JSON.parse(localStorage.getItem(CLAIMS) ?? '[]');
+    return JSON.parse(sessionStorage.getItem(CLAIMS) ?? '[]');
   } catch {
     return [];
   }
 };
 const remember = (txid: string) => {
   try {
-    localStorage.setItem(CLAIMS, JSON.stringify([...new Set([txid, ...claimed()])].slice(0, 200)));
+    sessionStorage.setItem(CLAIMS, JSON.stringify([...new Set([txid, ...claimed()])].slice(0, 200)));
   } catch {
     /* storage unavailable: the claim still shows for this visit */
   }
@@ -172,13 +174,26 @@ async function buildWall(): Promise<Wall> {
     for (const t of spec.txs) all.push(...(await burnsIn(t.tx, { height: null, time: null, specimen: true })));
     specimen = true;
   }
-  const byId = new Map(all.map((b) => [b.id, b]));
+  // Earliest block first. A post ref is only 40 bits of txid, so a later transaction could
+  // be ground to collide with a popular post; the first one mined keeps the id.
+  all.sort((a, b) => (a.height ?? Infinity) - (b.height ?? Infinity));
+  // A mask signature covers the memo, not the transaction, so anyone can burn a copy of a
+  // signed memo. Only the first copy counts as the mask's.
+  const signed = new Set<string>();
+  for (const b of all) {
+    if (!b.mask) continue;
+    const key = [b.mask, b.kind, b.target, b.option, b.text].join('\n');
+    if (signed.has(key)) b.mask = null;
+    else signed.add(key);
+  }
+  const byId = new Map<string, Burn>();
+  for (const b of all) if (!byId.has(b.id)) byId.set(b.id, b);
   const posts = new Map<string, Post>();
   const top = (b: Burn) => b.kind === 'post' || b.kind === 'sealed' || b.kind === 'poll' || !b.target || !byId.has(b.target);
-  for (const b of all) if (top(b)) posts.set(b.id, { ...b, boosted: 0, total: b.value, replies: [], boosts: [], tally: b.poll ? b.poll.options.map(() => ({ zat: 0, votes: 0 })) : null });
+  for (const b of all) if (top(b) && !posts.has(b.id)) posts.set(b.id, { ...b, boosted: 0, total: b.value, replies: [], boosts: [], tally: b.poll ? b.poll.options.map(() => ({ zat: 0, votes: 0 })) : null });
   for (const b of all) {
     const p = b.target ? posts.get(b.target) : undefined;
-    if (!p || b.id === p.id) continue;
+    if (!p || b.id === p.id || byId.get(b.id) !== b) continue;
     if (b.kind === 'reply') p.replies.push(b);
     if (b.kind === 'boost') {
       p.boosts.push(b);
@@ -242,7 +257,11 @@ function sealedText(post: Burn): HTMLElement {
         return;
       }
       const text = await unseal(post.text);
-      el.replaceChildren(h('span', { class: 'tag called' }, '✓ Called it'), h('p', { class: 'ash-text' }, text), h('p', { class: 'hint' }, `Sealed ${post.height ? `in block ${post.height.toLocaleString('en-US')}` : 'in a specimen transaction'}, opened ${fmtWhen(at)} by the drand beacon.`));
+      // A seal only means something if it was mined before the round it opens at.
+      const minedAt = post.time ? Date.parse(post.time.replace(' ', 'T').replace(/ UTC$/, 'Z')) : NaN;
+      const early = Number.isNaN(minedAt) ? null : minedAt < at.getTime();
+      const tag = early === false ? h('span', { class: 'tag bad' }, '✕ Sealed after it opened') : early ? h('span', { class: 'tag called' }, '✓ Sealed in advance') : h('span', { class: 'tag' }, 'Opened');
+      el.replaceChildren(tag, h('p', { class: 'ash-text' }, text), h('p', { class: 'hint' }, `Sealed ${post.height ? `in block ${post.height.toLocaleString('en-US')}${post.time ? ` (${post.time})` : ''}` : 'in a specimen transaction'}, opened ${fmtWhen(at)} by the drand beacon.${early === false ? ' It was mined after its own opening time, so it predicts nothing.' : ''}`));
     } catch (e) {
       el.replaceChildren(h('p', { class: 'ash-text muted' }, '🔒 Sealed (could not reach drand to check)'), h('p', { class: 'hint' }, e instanceof Error ? e.message : String(e)));
     }
@@ -569,7 +588,7 @@ export function claimView(shell: Shell) {
                     const link = `${location.origin}${location.pathname}#/burn/tx/${b.txid}.${b.action}`;
                     return h('p', {}, h('a', { href: `#/burn/tx/${b.txid}.${b.action}` }, `🔥 ${zecString(b.value)} ZEC · “${short(b.kind === 'sealed' ? '🔒 sealed prediction' : b.text || '(boost)', 40, 0)}”`), ' ', h('button', { class: 'btn tiny', type: 'button', onclick: (ev: Event) => copy(link, ev.currentTarget as HTMLElement) }, 'Copy share link'));
                   }),
-                  h('p', { class: 'hint' }, 'The share link works for anyone right now: it reads your burn straight from the chain. It shows on this device’s wall already; the public wall lists burns once they are added to the index, which the maintainers do by hand during the hackathon. Send the txid to @neromtoobad to be listed.'),
+                  h('p', { class: 'hint' }, 'The share link works for anyone right now: it reads your burn straight from the chain. It shows on this tab’s wall until you close it. The public wall lists a burn once its txid is in the public index (web/public/burns/index.json in the repository). Anyone can submit any txid, so submitting proves nothing about authorship, but whoever sees you submit it can guess. Use an account that is not linked to you.'),
                 ),
               );
             } catch (err) {
@@ -579,7 +598,8 @@ export function claimView(shell: Shell) {
         },
         h('p', { class: 'eyebrow ember' }, 'Claim a burn'),
         h('h1', {}, 'Put your burn on the wall'),
-        h('p', { class: 'muted' }, 'Paste the transaction ID from your wallet. This page fetches it, decrypts it with the public Burn Book key, and checks it is mined. A txid reveals nothing about who sent it.'),
+        h('p', { class: 'muted' }, 'Paste the transaction ID from your wallet. This page fetches it, decrypts it with the public Burn Book key, and checks it is mined. The txid itself reveals nothing about who sent it.'),
+        h('p', { class: 'hint' }, 'One caution: this page asks Blockchair for the transaction, and the first person ever to look up a fresh burn is probably its author. If that matters to you, use Tor, wait a while, or run your own chit node, which never asks Blockchair.'),
         input,
         h('div', { class: 'row' }, h('button', { class: 'btn fire', type: 'submit' }, 'Find my burn')),
         out,

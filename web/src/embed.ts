@@ -49,13 +49,14 @@ class ChitVerify extends HTMLElement {
       const head = await zpd.inspect(chit);
       const spec = await specimen().catch(() => null);
       const isSpecimen = spec?.txid === head.txid;
-      const hex = isSpecimen ? spec!.tx : (await fetchTx(head.network, head.txid)).hex;
-      const r = await zpd.verify(hex, chit);
+      const tx = isSpecimen ? null : await fetchTx(head.network, head.txid);
+      const r = await zpd.verify(tx?.hex ?? spec!.tx, chit);
       if (!r.verified) return this.#paint('Void', 'bad', 'Does not check out', esc(r.error ?? ''), 'Shielded payment');
       const v = r.verified;
       const zec = `${(v.value_zat / 1e8).toLocaleString('en-US', { maximumFractionDigits: 8 })} ZEC`;
       const memo = v.memo.kind === 'text' ? `“${esc(v.memo.value)}”` : 'no memo';
-      this.#paint(isSpecimen ? 'Spec' : 'Valid', '', zec, `${memo} · ${v.recipient.slice(0, 10)}…`, isSpecimen ? 'Specimen · not on chain' : `Verified · ${v.pool}`);
+      const unmined = !isSpecimen && !tx?.height;
+      this.#paint(isSpecimen ? 'Spec' : unmined ? 'Wait' : 'Valid', unmined ? 'wait' : '', zec, `${memo} · ${v.recipient.slice(0, 10)}…`, isSpecimen ? 'Specimen · not on chain' : unmined ? 'Valid, not mined yet' : `Verified · mined · ${v.pool}`);
     } catch (e) {
       this.#paint('?', 'wait', 'Could not check', esc(e instanceof Error ? e.message : String(e)), 'Shielded payment');
     }

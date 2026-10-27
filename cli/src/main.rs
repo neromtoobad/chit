@@ -21,7 +21,7 @@ const USAGE: &str = "usage:
                                                         list outputs your viewing key can disclose
   chit inspect <zout…>                                   show which transaction a disclosure names
   chit check-burn <txid>                                list the Burn Book posts in a mined transaction
-  chit serve [--listen ADDR] [--web DIR] [--cors ORIGIN] [--threads N]
+  chit serve [--listen ADDR] [--web DIR] [--cors ORIGIN] [--threads N] [--allow-scan]
                                                         run the verification API (see /openapi.json)
 
   --rpc URL    fetch transactions from your own Zebra node, e.g. http://user:pass@127.0.0.1:8232
@@ -39,6 +39,7 @@ struct Args {
     web: Option<std::path::PathBuf>,
     cors: Option<String>,
     threads: usize,
+    allow_scan: bool,
     testnet: bool,
     json: bool,
 }
@@ -52,7 +53,8 @@ fn parse_args() -> Result<Args, String> {
         listen: "127.0.0.1:8787".into(),
         web: None,
         cors: None,
-        threads: 4,
+        threads: 16,
+        allow_scan: false,
         testnet: false,
         json: false,
     };
@@ -71,6 +73,7 @@ fn parse_args() -> Result<Args, String> {
                     .and_then(|n| n.parse().ok())
                     .ok_or("--threads needs a number")?
             }
+            "--allow-scan" => a.allow_scan = true,
             "--testnet" => a.testnet = true,
             "--json" => a.json = true,
             "-h" | "--help" => return Err(String::new()),
@@ -164,12 +167,13 @@ fn check(a: &Args) -> Result<(), String> {
         },
         None => println!("  mined   unknown: checked against the transaction you supplied"),
     }
+    // The form says which key opened the note, not who made the chit: a payer knows esk too.
     println!(
-        "  by      the {}",
+        "  form    {}",
         if v.direction == Direction::Outgoing {
-            "payer"
+            "outgoing cipher key (ock)"
         } else {
-            "payee"
+            "note keys (pk_d || esk)"
         }
     );
     Ok(())
@@ -282,6 +286,7 @@ fn main() -> ExitCode {
                 listen: a.listen.clone(),
                 cors: a.cors.clone(),
                 threads: a.threads,
+                allow_scan: a.allow_scan,
             },
         ),
         _ => Err(String::new()),

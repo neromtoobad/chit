@@ -7,6 +7,16 @@
 //!   look up.
 
 use serde_json::{json, Value};
+use std::time::Duration;
+use ureq::Agent;
+
+/// Every upstream call gives up after 20 seconds, so a slow source cannot hold a worker.
+fn agent() -> Agent {
+    Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .build()
+        .into()
+}
 use zcash_protocol::consensus::NetworkType;
 
 #[derive(Debug, Clone)]
@@ -43,7 +53,8 @@ impl Source for Blockchair {
             return Err("Blockchair has no Zcash testnet; use --rpc with your own node".into());
         }
         let get = |url: String| -> Result<Value, String> {
-            ureq::get(&url)
+            agent()
+                .get(&url)
                 .call()
                 .map_err(|e| format!("blockchair: {e}"))?
                 .body_mut()
@@ -96,7 +107,9 @@ impl Zebra {
     }
 
     fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let mut req = ureq::post(&self.url).header("content-type", "application/json");
+        let mut req = agent()
+            .post(&self.url)
+            .header("content-type", "application/json");
         if let Some(a) = &self.auth {
             req = req.header("authorization", a);
         }

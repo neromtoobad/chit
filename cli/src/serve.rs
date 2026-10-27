@@ -5,7 +5,7 @@
 //!   GET  /v1/inspect/{chit}
 //!   GET  /v1/verify/{chit}              fetch the transaction, verify, report every step
 //!   POST /v1/verify   {chit, tx_hex?}
-//!   POST /v1/scan     {ufvk, txid | tx_hex, network?}   (self-host only: takes a viewing key)
+//!   POST /v1/scan     {ufvk, txid | tx_hex, network?}   (off unless --allow-scan: takes a viewing key)
 //!   GET  /v1/burns/{txid}
 //!   GET  /v1/tx/{txid}                  the raw transaction and where it is mined
 //!   GET  /openapi.json
@@ -15,6 +15,9 @@
 //! running `chit serve --rpc … --web …` next to their own Zebra node uses no third party.
 //!
 //! Mined transactions never change, so fetched ones are cached in memory.
+//!
+//! tiny_http has no read timeouts, so a server reachable from the internet belongs behind
+//! a reverse proxy that has them (and TLS).
 
 use crate::report;
 use crate::source::{Fetched, Source};
@@ -34,6 +37,7 @@ pub struct Config {
     pub listen: String,
     pub cors: Option<String>,
     pub threads: usize,
+    pub allow_scan: bool,
 }
 
 struct App {
@@ -41,6 +45,7 @@ struct App {
     source: Box<dyn Source>,
     cache: Mutex<HashMap<String, Fetched>>,
     cors: Option<String>,
+    allow_scan: bool,
 }
 
 type Reply = (u16, Value);
@@ -50,9 +55,14 @@ fn bad(msg: impl Into<String>) -> Reply {
 }
 
 impl App {
+    /// The cache survives a panicked request: a poisoned lock still holds valid entries.
+    fn cache(&self) -> std::sync::MutexGuard<'_, HashMap<String, Fetched>> {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn fetch(&self, network: NetworkType, txid: &str) -> Result<Fetched, Reply> {
         let txid = txid.to_lowercase();
-        if let Some(f) = self.cache.lock().unwrap().get(&txid) {
+        if let Some(f) = self.cache().get(&txid) {
             return Ok(f.clone());
         }
         let f = self
@@ -60,7 +70,7 @@ impl App {
             .fetch(network, &txid)
             .map_err(|e| (502, json!({ "error": e })))?;
         if f.height.is_some() {
-            let mut c = self.cache.lock().unwrap();
+            let mut c = self.cache();
             if c.len() >= CACHE_MAX {
                 c.clear();
             }
@@ -180,6 +190,10 @@ impl App {
                 },
                 Err(r) => r,
             },
+            (Method::Post, ["v1", "scan"]) if !self.allow_scan => (
+                403,
+                json!({ "error": "scan takes a viewing key and is off; start chit serve with --allow-scan on a private network" }),
+            ),
             (Method::Post, ["v1", "scan"]) => match json_body() {
                 Ok(b) => self.scan(&b),
                 Err(r) => r,
@@ -227,7 +241,9 @@ impl App {
     /// Serves the built web app. Paths are confined to `dir`; unknown paths get index.html.
     fn static_file(&self, req: Request, dir: &std::path::Path, path: &str) {
         let rel = path.trim_start_matches('/');
-        let safe = !rel.split('/').any(|c| c == ".." || c.starts_with('.'));
+        // No dot-segments or hidden files, and nothing Windows would read as a separator or drive.
+        let safe =
+            !rel.contains(['\\', ':']) && !rel.split('/').any(|c| c == ".." || c.starts_with('.'));
         let mut file = dir.join(if rel.is_empty() || !safe {
             "index.html"
         } else {
@@ -307,6 +323,7 @@ pub fn run(source: Box<dyn Source>, cfg: Config) -> Result<(), String> {
         source,
         cache: Mutex::new(HashMap::new()),
         cors: cfg.cors,
+        allow_scan: cfg.allow_scan,
     });
     eprintln!(
         "chit serve: listening on http://{} (source: {})",
@@ -318,7 +335,10 @@ pub fn run(source: Box<dyn Source>, cfg: Config) -> Result<(), String> {
             let (server, app) = (server.clone(), app.clone());
             std::thread::spawn(move || {
                 for req in server.incoming_requests() {
-                    app.handle(req);
+                    // A panic drops that one request, not the worker.
+                    let app = &app;
+                    let _ =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.handle(req)));
                 }
             })
         })

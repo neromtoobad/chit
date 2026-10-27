@@ -132,8 +132,10 @@ A UI showing a valid disclosure:
 - MUST show the value, the recipient, the memo, the txid and the action index;
 - MUST say whether the transaction was confirmed as mined, and from what source;
 - MUST NOT describe the disclosure as proof of who sent the payment, or of who is presenting
-  it. It MAY say it was made with the payer's (outgoing) or payee's (incoming) viewing key.
-  That is true of its origin, but anyone the disclosure is forwarded to can present it;
+  it. It MAY say which key form it carries (`ock`, or `pk_d || esk`). It MUST NOT say that a
+  `pk_d || esk` disclosure was made by the payee: the payer's wallet chose `rseed`, so the
+  payer knows `esk` too, and anyone holding an `ock` disclosure can decrypt `pk_d || esk`
+  from it and re-encode it in that form. Anyone the disclosure is forwarded to can present it;
 - SHOULD show the recipient as a Unified Address that contains only the disclosed receiver.
   For Ironwood notes that receiver uses typecode `0x03`, as in ZIP 258.
 

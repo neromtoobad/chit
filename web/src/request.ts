@@ -1,5 +1,8 @@
 // Payment requests ("Pay & prove"). A request is a ZIP 321 payment URI plus a reference
 // the memo must carry. It lives entirely in a link, so no server ever sees it.
+//
+// The link travels through the payer, who could edit it, so a request only counts as the
+// payee's own when this device made it: requests made here are remembered here.
 
 import type { Network } from './chain';
 import type { Verified } from './zpd';
@@ -30,6 +33,28 @@ export function decodeRequest(s: string): PayRequest | null {
     return null;
   }
 }
+
+const ISSUED = 'chit.requests.issued';
+
+const issued = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(ISSUED) ?? '[]');
+  } catch {
+    return [];
+  }
+};
+
+/** Records a request made on this device, so a payment can later be checked against it. */
+export function rememberIssued(encoded: string) {
+  try {
+    localStorage.setItem(ISSUED, JSON.stringify([encoded, ...issued().filter((e) => e !== encoded)].slice(0, 500)));
+  } catch {
+    /* storage unavailable: checks will show the request as unconfirmed */
+  }
+}
+
+/** Whether this exact request was made on this device. */
+export const issuedHere = (encoded: string) => issued().includes(encoded);
 
 export const zecString = (zat: number) => `${Math.floor(zat / 1e8)}.${String(zat % 1e8).padStart(8, '0')}`.replace(/\.?0+$/, '');
 
@@ -62,6 +87,8 @@ export interface InvoiceCheck {
 
 export async function checkInvoice(v: Verified, r: PayRequest): Promise<InvoiceCheck> {
   const recipient = await sameReceiver(v.recipient, r.address, r.network);
-  const memo = v.memo.kind === 'text' && v.memo.value.includes(r.reference);
+  // The reference must stand on its own: INV-1 is not satisfied by INV-10.
+  const ref = r.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const memo = v.memo.kind === 'text' && new RegExp(`(^|[^\\p{L}\\p{N}_-])${ref}($|[^\\p{L}\\p{N}_-])`, 'u').test(v.memo.value);
   return { recipient, amount: v.value_zat >= r.amountZat, memo, shortBy: Math.max(0, r.amountZat - v.value_zat) };
 }

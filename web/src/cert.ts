@@ -5,7 +5,7 @@
 import type { Memo, Verified } from './zpd';
 
 export type Seal =
-  | { kind: 'valid'; source: 'chain' | 'pasted' | 'specimen' }
+  | { kind: 'valid'; source: 'chain' | 'mempool' | 'pasted' | 'specimen' }
   | { kind: 'paid' }
   | { kind: 'short' }
   | { kind: 'wrong' }
@@ -151,6 +151,8 @@ function sealNode(seal: Seal): HTMLElement | null {
     case 'valid':
       return seal.source === 'chain'
         ? s('ok', 'On chain', 'Valid', '· mainnet ·')
+        : seal.source === 'mempool'
+          ? s('warn', 'Not mined', 'Valid', 'yet · recheck')
         : seal.source === 'specimen'
           ? s('spec', 'Specimen', 'Valid', 'not on chain')
           : s('ok', 'Pasted tx', 'Valid', 'check it’s mined');
@@ -177,7 +179,8 @@ function serial(v: Verified) {
 export function certificate(v: Verified, seal: Seal, meta: CertMeta = {}): HTMLElement {
   const seed = `${v.txid}:${v.action}`;
   const who = v.direction === 'outgoing' ? 'Paid to' : 'Received at';
-  const made = v.direction === 'outgoing' ? 'the payer’s viewing key' : 'the payee’s viewing key';
+  // Which keys open the note, not who made the chit: the payer knows esk as well.
+  const made = v.direction === 'outgoing' ? 'Outgoing cipher key (ock)' : 'Note keys (pk_d ‖ esk)';
   const copyBtn = h('button', { class: 'tiny', type: 'button', onclick: (e: Event) => copy(v.recipient, e.currentTarget as HTMLElement) }, 'Copy');
   const mined = meta.height
     ? `block ${meta.height.toLocaleString('en-US')}${meta.confirmations ? ` · ${meta.confirmations.toLocaleString('en-US')} conf.` : ''}`
@@ -205,7 +208,7 @@ export function certificate(v: Verified, seal: Seal, meta: CertMeta = {}): HTMLE
         h('dd', {}, short(v.txid, 12, 8), h('span', { class: 'muted' }, ` · output ${v.action}`)),
         meta.time ? h('dt', {}, 'Mined at') : null,
         meta.time ? h('dd', {}, meta.time) : null,
-        h('dt', {}, 'Made with'),
+        h('dt', {}, 'Opened with'),
         h('dd', {}, made),
       ),
       h('div', { class: 'micro', 'aria-hidden': 'true' }, 'ONE OUTPUT · NO VIEWING KEY · NO OTHER PAYMENT · '.repeat(12)),

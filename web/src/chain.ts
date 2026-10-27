@@ -75,7 +75,9 @@ let selfHosted: Promise<boolean> | null = null;
 
 /** Whether this page is served by `chit serve`, which then becomes the only data source. */
 export function nodeOnThisOrigin(): Promise<boolean> {
-  return (selfHosted ??= fetch('/v1/health', opts)
+  // Resolved against this module, not the page: the embed badge on someone else's site must
+  // never take transactions from that site.
+  return (selfHosted ??= fetch(new URL('/v1/health', import.meta.url), opts)
     .then(async (r) => r.ok && (r.headers.get('content-type') ?? '').includes('json') && (await r.json()).ok === true)
     .catch(() => false));
 }
@@ -108,7 +110,7 @@ async function load(network: Network, txid: string): Promise<TxData> {
 }
 
 async function fromNode(txid: string): Promise<TxData> {
-  const r = await get(`/v1/tx/${txid}`);
+  const r = await get(new URL(`/v1/tx/${txid}`, import.meta.url).href);
   return { hex: r.hex, height: r.height ?? null, time: null, confirmations: r.confirmations ?? null, source: `your node (${r.source})` };
 }
 

@@ -185,6 +185,8 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--green); 
 .pair { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 32px; align-items: start; margin-top: 8px; }
 .pair > .cert { margin: 0; }
 .side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 20px; }
+.narrow .pair { grid-template-columns: minmax(0, 1fr); }
+.narrow .pair > .log { margin-top: 4px; }
 .offline { margin: 26px 0 0; color: var(--mute); max-width: 560px; }
 .offline summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .offline textarea { margin: 10px 0; }
@@ -295,6 +297,31 @@ a.poll-opt:hover { border-color: var(--ember); }
 .mask-row .rank { font: 400 22px var(--serif); color: var(--ember-2); min-width: 34px; }
 .mask-row b { flex: 1; }
 
+input.masked { -webkit-text-security: disc; }
+.invoice.unconfirmed { border-style: dashed; }
+
+/* judges' tour */
+.tour-link { display: inline-block; margin-top: 16px; font: 600 13px var(--mono); color: var(--green); text-decoration: none; }
+.tour-link:hover { text-decoration: underline; }
+.tour { max-width: 1040px; margin: 0 auto; }
+.tour h1 { font-size: clamp(42px, 5.4vw, 72px); line-height: .98; letter-spacing: -.03em; margin: 0 0 20px; }
+.tour h1 em { font-style: normal; color: var(--green); }
+.tour .lede { max-width: 700px; }
+.tour-card { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; border-top: 1px solid var(--line); padding: 34px 0 30px; margin-top: 30px; }
+.tour-num { font: 400 30px var(--serif); color: var(--green); }
+.tour-card h2 { font-size: 28px; margin: 0 0 8px; }
+.tour-card > .tour-body > p { max-width: 700px; }
+.tour-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; align-items: start; }
+.tour-pair pre.code.block { margin: 0; padding-right: 12px; }
+.tour-total { display: inline-flex; align-items: baseline; gap: 10px; margin-right: 8px; }
+.tour-total .kicker { display: inline; }
+.tour-honest { border-top: 1px solid var(--line); padding-top: 34px; margin-top: 30px; }
+.tour-honest h2 { font-size: 28px; }
+.tour-honest table { width: 100%; border-collapse: collapse; margin-top: 12px; border: 1px solid var(--line); }
+.tour-honest th, .tour-honest td { text-align: left; vertical-align: top; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.tour-honest th { width: 34%; font-weight: 600; }
+.tour-honest td { color: var(--mute); }
+
 /* developers */
 .dev h2 { font-size: 26px; }
 .embed-demo { margin-top: 16px; }
@@ -310,6 +337,7 @@ a.poll-opt:hover { border-color: var(--ember); }
   .stage .log { left: 0; right: 0; width: auto; bottom: 0; }
   .uses { grid-template-columns: 1fr; }
   .pair { grid-template-columns: minmax(0, 1fr); }
+  .tour-pair { grid-template-columns: minmax(0, 1fr); }
   .side { position: static; }
   nav { display: none; }
 }
@@ -326,6 +354,9 @@ a.poll-opt:hover { border-color: var(--ember); }
   .doc .sigil { width: 44px; height: 44px; right: 22px; bottom: 44px; }
   .share, .request-body { flex-direction: column; }
   .grid2 { grid-template-columns: 1fr; }
+  .tour-card { grid-template-columns: minmax(0, 1fr); }
+  .tour-honest th, .tour-honest td { display: block; width: auto; border-bottom: 0; padding: 8px 14px; }
+  .tour-honest tr { display: block; border-bottom: 1px solid var(--line); }
   .ledger-doc { padding: 24px 18px; }
   .ledger-head { flex-direction: column; align-items: flex-start; }
   .ledger-totals { text-align: left; }

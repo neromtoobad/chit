@@ -6,10 +6,11 @@ import './style.css';
 import qrcode from 'qrcode-generator';
 import { ChainError, explorerUrl, fetchStats, fetchTx, sourceName, type Network, type TxData } from './chain';
 import { certificate, checklog, copy, h, memoNode, short, zec, type Seal, type StepView } from './cert';
-import { checkInvoice, decodeRequest, encodeRequest, memoFor, parseZec, zecString, zip321, type PayRequest } from './request';
+import { checkInvoice, decodeRequest, encodeRequest, issuedHere, memoFor, rememberIssued, parseZec, zecString, zip321, type PayRequest } from './request';
 import { specimen } from './specimen';
 import * as zpd from './zpd';
 import * as burnbook from './burnbook';
+import { tourView } from './tour';
 
 const app = document.getElementById('app')!;
 let srcLabel = 'No server, no account. Keys never leave this tab.';
@@ -20,12 +21,13 @@ type Route =
   | { view: 'home' }
   | { view: 'make' }
   | { view: 'check' }
-  | { view: 'verify'; chit: string; request: PayRequest | null }
+  | { view: 'verify'; chit: string; request: PayRequest | null; requestRaw: string | null }
   | { view: 'newRequest' }
   | { view: 'request'; request: PayRequest; raw: string }
   | { view: 'newLedger' }
   | { view: 'ledger'; chits: string[]; title: string; hide: boolean }
   | { view: 'dev' }
+  | { view: 'tour' }
   | { view: 'burn'; tab: 'top' | 'new' | 'sealed' | 'polls' }
   | { view: 'burnMasks' }
   | { view: 'burnNew'; preset: string }
@@ -34,7 +36,13 @@ type Route =
   | { view: 'burnProof' };
 
 function route(): Route {
-  const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+  const parts = location.hash.replace(/^#\/?/, '').split('/').map((p) => {
+    try {
+      return decodeURIComponent(p);
+    } catch {
+      return p; // a stray % must not blank the app
+    }
+  });
   const [head, a, b, c] = parts;
   if (head === 'burn') {
     if (a === 'new') return { view: 'burnNew', preset: b ?? '' };
@@ -47,9 +55,10 @@ function route(): Route {
   if (head === 'make') return { view: 'make' };
   if (head === 'check') return { view: 'check' };
   if (head === 'dev') return { view: 'dev' };
+  if (head === 'tour') return { view: 'tour' };
   if (head === 'request') return { view: 'newRequest' };
   if (head === 'ledger') return { view: 'newLedger' };
-  if (head === 'v' && a) return { view: 'verify', chit: a, request: b === 'r' && c ? decodeRequest(c) : null };
+  if (head === 'v' && a) return { view: 'verify', chit: a, request: b === 'r' && c ? decodeRequest(c) : null, requestRaw: b === 'r' && c ? c : null };
   if (head === 'r' && a) {
     const request = decodeRequest(a);
     if (request) return { view: 'request', request, raw: a };
@@ -162,6 +171,7 @@ async function home() {
         h('h1', {}, 'One payment,', h('br'), h('em', {}, 'notarised.'), h('br'), 'Nothing else.'),
         h('p', { class: 'lede' }, 'Turn a single shielded output into a certificate anyone can verify against the chain. You never hand over a viewing key, and no other payment is exposed.'),
         h('div', { class: 'row' }, h('a', { class: 'btn primary', href: '#/make' }, 'Make a chit'), h('a', { class: 'btn', href: '#/check' }, 'Check a chit')),
+        h('a', { class: 'tour-link', href: '#/tour' }, 'Judging? Take the 90-second tour →'),
         stats,
       ),
       stage,
@@ -171,7 +181,7 @@ async function home() {
       { class: 'uses' },
       use('Burn Book', 'Say anything, burn ZEC to say it, nobody knows who. Posts are payments to an address nobody can spend from; the most burned rise to the top.', '#/burn', 'Open the book'),
       use('Pay & prove', 'Send a customer a payment request. When they pay, their chit is checked against it: right recipient, full amount, invoice number in the memo.', '#/request', 'Make a request'),
-      use('Proof of payouts', 'Paying winners, grantees or staff from a shielded wallet? Publish one ledger page that proves every payment and the total, without opening the wallet.', '#/ledger', 'Build a ledger'),
+      use('Proof of payouts', 'Paying winners, grantees or staff from a shielded wallet? Publish one ledger page that proves what each payout holds, and the total, without opening the wallet.', '#/ledger', 'Build a ledger'),
       use('For developers', 'The verifier is a Rust crate compiled to WebAssembly. Use it from npm, the command line, or drop a <chit-verify> badge onto any page.', '#/dev', 'Developer kit'),
     ),
     h(
@@ -187,7 +197,7 @@ async function home() {
         reveal('Your balance', 'Yes', 'No'),
         reveal('Can be turned back into your key', '—', 'No'),
       ),
-      h('p', { class: 'muted small' }, 'A payer’s chit carries the output’s outgoing cipher key (ock), the mechanism draft ZIP 311 specifies for Sapling. A payee’s chit carries pk_d and esk, which a recipient can rebuild under ZIP 212. Every check runs in your browser with the official Zcash crates compiled to WebAssembly.'),
+      h('p', { class: 'muted small' }, 'A payer’s chit carries the output’s outgoing cipher key (ock), the mechanism draft ZIP 311 specifies for Sapling. A payee’s chit carries pk_d and esk, which a recipient can rebuild under ZIP 212 (the payer knows them too). Every check runs in your browser with the official Zcash crates compiled to WebAssembly.'),
     ),
   );
 
@@ -218,7 +228,8 @@ function make() {
   const txid = h('input', { id: 'txid', placeholder: 'Transaction ID (64 hex characters)', spellcheck: 'false', autocomplete: 'off' });
   const raw = h('textarea', { id: 'raw', placeholder: 'Raw transaction hex', spellcheck: 'false', rows: '4' });
   const rawWrap = h('div', { class: 'hidden' }, h('label', { for: 'raw' }, 'Raw transaction'), raw, h('p', { class: 'hint' }, 'Use this offline, on testnet, or so the explorer never sees this txid.'));
-  const key = h('input', { id: 'ufvk', type: 'password', placeholder: 'uview1…', spellcheck: 'false', autocomplete: 'off' });
+  // Not type=password: password managers would offer to save, and sync, the viewing key.
+  const key = h('input', { id: 'ufvk', class: 'masked', placeholder: 'uview1…', spellcheck: 'false', autocomplete: 'off', 'data-1p-ignore': '', 'data-lpignore': 'true' });
   const net = h('select', { onchange: (e: Event) => (network = (e.target as HTMLSelectElement).value as Network) }, h('option', { value: 'main' }, 'Mainnet'), h('option', { value: 'test' }, 'Testnet'));
   const go = h('button', { class: 'btn primary', type: 'submit' }, 'Find my outputs');
   const out = h('div', { class: 'results' });
@@ -264,7 +275,7 @@ function make() {
           const id = await zpd.txidOf(hex);
           const spec = await specimen().catch(() => null);
           const source: Source = spec?.txid === id ? 'specimen' : tx ? 'chain' : 'pasted';
-          showFound(out, found, network, id, tx, source);
+          showFound(out, found, network, id, tx, hex, source);
         } catch (err) {
           out.replaceChildren(errorBox(err instanceof Error ? err.message : String(err)));
         } finally {
@@ -288,7 +299,7 @@ function make() {
   shell(h('div', { class: 'narrow' }, form, out));
 }
 
-function showFound(out: HTMLElement, found: zpd.Found[], network: Network, txid: string, tx: TxData | null, source: Source) {
+function showFound(out: HTMLElement, found: zpd.Found[], network: Network, txid: string, tx: TxData | null, hex: string, source: Source) {
   if (!found.length) {
     out.replaceChildren(errorBox('This viewing key has no Orchard or Ironwood outputs in that transaction.', 'Check that it is the wallet that sent or received the payment, and that the payment was shielded.'));
     return;
@@ -301,9 +312,11 @@ function showFound(out: HTMLElement, found: zpd.Found[], network: Network, txid:
     .sort((a, b) => Number(a.change) - Number(b.change))
     .map((f) => {
       const label = f.change ? 'Change to yourself' : f.direction === 'outgoing' ? 'You paid' : 'You received';
+      // Change goes back to the sender: it is not a payout, so it cannot pad a ledger.
       const box = h('input', {
         type: 'checkbox',
-        'aria-label': 'Add to ledger',
+        'aria-label': f.change ? 'Change cannot go in a ledger' : 'Add to ledger',
+        disabled: f.change,
         onchange: (e: Event) => {
           (e.target as HTMLInputElement).checked ? picked.add(f.disclosure) : picked.delete(f.disclosure);
           ledgerBtn.disabled = picked.size < 1;
@@ -311,12 +324,12 @@ function showFound(out: HTMLElement, found: zpd.Found[], network: Network, txid:
       });
       const choose = h('button', { class: 'btn primary small', type: 'button' }, 'Make chit');
       choose.addEventListener('click', async () => {
-        const report = await zpd.verify(tx?.hex ?? (await specimen()).tx, f.disclosure).catch(() => null);
+        const report = await zpd.verify(hex, f.disclosure).catch(() => null);
         const v: zpd.Verified = { network, txid, pool: f.pool, action: f.action, direction: f.direction, value_zat: f.value_zat, recipient: f.recipient, memo: f.memo };
         out.replaceChildren(
           h('div', { class: 'pair' }, certificate(v, source === 'specimen' ? { kind: 'valid', source } : { kind: 'preview' }, { height: tx?.height, time: tx?.time, chit: f.disclosure }), report ? checklog('Self-check before sharing', report.steps) : h('span')),
           shareBox(f.disclosure),
-          h('button', { class: 'link', type: 'button', onclick: () => showFound(out, found, network, txid, tx, source) }, '← All outputs'),
+          h('button', { class: 'link', type: 'button', onclick: () => showFound(out, found, network, txid, tx, hex, source) }, '← All outputs'),
         );
         out.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
@@ -331,7 +344,7 @@ function showFound(out: HTMLElement, found: zpd.Found[], network: Network, txid:
   out.replaceChildren(
     h('h2', {}, `${found.length} output${found.length > 1 ? 's' : ''} your key can disclose`),
     ...rows,
-    h('div', { class: 'panel slim' }, h('p', { class: 'hint' }, 'Paying several people? Tick their outputs and publish one ledger that proves every payment and the total.'), h('div', { class: 'row tight' }, title, h('label', { class: 'inline' }, hide, 'Hide recipients'), ledgerBtn)),
+    h('div', { class: 'panel slim' }, h('p', { class: 'hint' }, 'Paying several people? Tick their outputs and publish one ledger page that proves what each of those outputs holds, and their total. Change cannot be ticked.'), h('div', { class: 'row tight' }, title, h('label', { class: 'inline' }, hide, 'Hide recipients'), ledgerBtn)),
   );
 }
 
@@ -383,7 +396,7 @@ function check() {
   );
 }
 
-function verifyView(chit: string, request: PayRequest | null) {
+function verifyView(chit: string, request: PayRequest | null, requestRaw: string | null) {
   const body = h('div', { class: 'pair' }, h('p', { class: 'muted' }, 'Checking…'));
   const raw = h('textarea', { rows: '3', placeholder: 'Raw transaction hex', spellcheck: 'false' });
   const offline = h(
@@ -394,7 +407,10 @@ function verifyView(chit: string, request: PayRequest | null) {
     raw,
     h('button', { class: 'btn small', type: 'button', onclick: () => run(raw.value.trim()) }, 'Check with this transaction'),
   );
-  const invoice = request ? invoiceCard(request) : null;
+  // A request read from the link may have been edited by the payer; only one made on this
+  // device is the payee's own.
+  const ours = !!requestRaw && issuedHere(requestRaw);
+  const invoice = request ? invoiceCard(request, ours) : null;
   shell(h('div', { class: 'wide' }, invoice, body, offline));
 
   async function run(rawHex?: string) {
@@ -415,7 +431,8 @@ function verifyView(chit: string, request: PayRequest | null) {
       return body.replaceChildren(voidCert(report.error ?? 'invalid'), checklog('Verification log', report.steps));
     }
     const v = report.verified;
-    let seal: Seal = { kind: 'valid', source: c.source };
+    const mined = c.source === 'chain' && !!c.tx?.height;
+    let seal: Seal = { kind: 'valid', source: c.source === 'chain' && !mined ? 'mempool' : c.source };
     const extra: StepView[] = [sourceStep(c)];
     if (request) {
       const inv = await checkInvoice(v, request);
@@ -423,8 +440,12 @@ function verifyView(chit: string, request: PayRequest | null) {
         { id: 'inv-to', label: 'Paid to the address on the request', ok: inv.recipient },
         { id: 'inv-amt', label: inv.amount ? `At least ${zecString(request.amountZat)} ZEC` : `Short by ${zecString(inv.shortBy)} ZEC`, ok: inv.amount },
         { id: 'inv-memo', label: `Memo carries “${request.reference}”`, ok: inv.memo },
+        ours ? { id: 'inv-own', label: 'Request was made on this device', ok: true } : { id: 'inv-own', label: 'Request came with the link, not made on this device: compare it with the one you sent', ok: null },
       );
-      seal = !inv.recipient ? { kind: 'wrong' } : !inv.amount ? { kind: 'short' } : !inv.memo ? { kind: 'memo' } : { kind: 'paid' };
+      const matches = inv.recipient && inv.amount && inv.memo;
+      // "Paid" needs all three: the payee's own request, a mined transaction (or the labelled
+      // specimen), every check.
+      seal = !inv.recipient ? { kind: 'wrong' } : !inv.amount ? { kind: 'short' } : !inv.memo ? { kind: 'memo' } : matches && ours && (mined || c.source === 'specimen') ? { kind: 'paid' } : seal;
     }
     const explorer = explorerUrl(v.network, v.txid);
     body.replaceChildren(
@@ -435,11 +456,11 @@ function verifyView(chit: string, request: PayRequest | null) {
   run();
 }
 
-function invoiceCard(r: PayRequest) {
+function invoiceCard(r: PayRequest, ours: boolean) {
   return h(
     'div',
-    { class: 'invoice' },
-    h('span', { class: 'kicker' }, 'Checking against a payment request'),
+    { class: `invoice${ours ? '' : ' unconfirmed'}` },
+    h('span', { class: 'kicker' }, ours ? 'Checking against your payment request' : 'Checking against a request that came with this link · not made on this device'),
     h('div', { class: 'invoice-row' }, h('div', {}, h('span', { class: 'kicker' }, 'Amount'), zec(r.amountZat, 'amount md')), h('div', {}, h('span', { class: 'kicker' }, 'Reference'), h('b', { class: 'mono' }, r.reference)), h('div', { class: 'grow' }, h('span', { class: 'kicker' }, 'To'), h('span', { class: 'mono small' }, short(r.address, 14, 10)))),
   );
 }
@@ -468,13 +489,14 @@ function newRequest() {
             if (!zat) return err.replaceChildren(errorBox('Enter an amount in ZEC, e.g. 0.25.'));
             if (!reference.value.trim()) return err.replaceChildren(errorBox('Add a reference, such as an invoice number. The payment’s memo must carry it.'));
             const req: PayRequest = { network: 'main', address: a, amountZat: zat, reference: reference.value.trim(), label: label.value.trim() };
+            rememberIssued(encodeRequest(req));
             const link = `${base()}#/r/${encodeRequest(req)}`;
             out.replaceChildren(
               h(
                 'section',
                 { class: 'share' },
                 qr(link),
-                h('div', { class: 'grow' }, h('h3', {}, 'Send this to your customer'), h('p', { class: 'muted small' }, 'They open it, pay from their wallet with one tap, and send you back their chit. You check it here: right recipient, full amount, reference in the memo.'), h('code', { class: 'code' }, link), h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (ev: Event) => copy(link, ev.currentTarget as HTMLElement) }, 'Copy request link'), h('a', { class: 'btn small', href: link.split(base())[1] }, 'Open as customer'))),
+                h('div', { class: 'grow' }, h('h3', {}, 'Send this to your customer'), h('p', { class: 'muted small' }, 'They open it, pay from their wallet with one tap, and send you back their chit. Check it here, on this device: it remembers this request, so a link the payer edited cannot show “Paid”.'), h('code', { class: 'code' }, link), h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (ev: Event) => copy(link, ev.currentTarget as HTMLElement) }, 'Copy request link'), h('a', { class: 'btn small', href: link.split(base())[1] }, 'Open as customer'))),
               ),
             );
           },
@@ -605,7 +627,7 @@ function newLedger() {
 
 interface LedgerRow {
   chit: string;
-  status: 'checking' | 'valid' | 'specimen' | 'pasted' | 'void' | 'unfetched' | 'duplicate';
+  status: 'checking' | 'valid' | 'unmined' | 'specimen' | 'pasted' | 'void' | 'unfetched' | 'duplicate';
   v?: zpd.Verified;
   height?: number | null;
   error?: string;
@@ -623,7 +645,7 @@ function ledgerView(chits: string[], title: string, hide: boolean) {
       h(
         'article',
         { class: 'ledger-doc' },
-        h('div', { class: 'ledger-head' }, h('div', {}, h('p', { class: 'eyebrow' }, 'Proof of payouts'), h('h1', {}, title || 'Shielded payouts'), h('p', { class: 'muted small' }, 'Every line is a chit checked against its transaction in your browser, with the official Zcash crates. Together they prove these payments without opening the payer’s wallet.')), totals),
+        h('div', { class: 'ledger-head' }, h('div', {}, h('p', { class: 'eyebrow' }, 'Proof of payouts'), h('h1', {}, title || 'Shielded payouts'), h('p', { class: 'muted small' }, 'Every line is a chit checked against its transaction in your browser, with the official Zcash crates. It proves each output exists on chain and what it holds, without opening the payer’s wallet. It does not prove who sent them: chits carry no signature.'), hide ? h('p', { class: 'muted small' }, 'Recipients are hidden, so a reader cannot tell payouts from payments to the publisher’s own addresses.') : null), totals),
         h('table', { class: 'ledger' }, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Paid to'), h('th', {}, 'Memo'), h('th', {}, 'Block'), h('th', { class: 'r' }, 'Amount'), h('th', {}, 'Status'))), tbody),
         exportRow,
       ),
@@ -633,12 +655,12 @@ function ledgerView(chits: string[], title: string, hide: boolean) {
   const paint = () => {
     tbody.replaceChildren(
       ...rows.map((r) => {
-        const tag = { checking: ['Checking', ''], valid: ['Verified', 'ok'], specimen: ['Specimen', 'spec'], pasted: ['Pasted', ''], void: ['Void', 'bad'], unfetched: ['Not found', ''], duplicate: ['Duplicate', 'bad'] }[r.status];
+        const tag = { checking: ['Checking', ''], valid: ['Verified', 'ok'], unmined: ['Not mined', ''], specimen: ['Specimen', 'spec'], pasted: ['Pasted', ''], void: ['Void', 'bad'], unfetched: ['Not found', ''], duplicate: ['Duplicate', 'bad'] }[r.status];
         return h(
           'tr',
           { class: r.status },
           h('td', {}, r.v ? sigilTiny(`${r.v.txid}:${r.v.action}`) : ''),
-          h('td', { class: 'mono' }, r.v ? (hide ? 'hidden' : short(r.v.recipient, 10, 6)) : short(r.chit, 12, 6)),
+          h('td', { class: 'mono' }, r.v ? (hide ? 'hidden' : short(r.v.recipient, 10, 6)) : short(r.chit, 12, 6), r.v?.direction === 'incoming' ? h('span', { class: 'muted small' }, ' · payee form') : null),
           h('td', {}, r.v ? memoNode(r.v.memo) : r.error ? h('span', { class: 'muted small' }, r.error) : ''),
           h('td', { class: 'mono small' }, r.height ? r.height.toLocaleString('en-US') : r.status === 'specimen' ? 'never mined' : '—'),
           h('td', { class: 'r' }, r.v ? zec(r.v.value_zat, 'amount sm') : ''),
@@ -669,7 +691,7 @@ function ledgerView(chits: string[], title: string, hide: boolean) {
         const key = `${c.report.verified.txid}:${c.report.verified.action}`;
         r.v = c.report.verified;
         r.height = c.tx?.height;
-        r.status = seen.has(key) ? 'duplicate' : c.source === 'chain' ? 'valid' : c.source;
+        r.status = seen.has(key) ? 'duplicate' : c.source === 'chain' ? (c.tx?.height ? 'valid' : 'unmined') : c.source;
         seen.add(key);
       } else {
         r.status = 'void';
@@ -740,12 +762,13 @@ function render() {
   const r = route();
   if (r.view === 'make') make();
   else if (r.view === 'check') check();
-  else if (r.view === 'verify') verifyView(r.chit, r.request);
+  else if (r.view === 'verify') verifyView(r.chit, r.request, r.requestRaw);
   else if (r.view === 'newRequest') newRequest();
   else if (r.view === 'request') requestView(r.request, r.raw);
   else if (r.view === 'newLedger') newLedger();
   else if (r.view === 'ledger') ledgerView(r.chits, r.title, r.hide);
   else if (r.view === 'dev') dev();
+  else if (r.view === 'tour') tourView(shell);
   else if (r.view === 'burn') burnbook.wallView(shell, r.tab);
   else if (r.view === 'burnNew') burnbook.composeView(shell, r.preset);
   else if (r.view === 'burnPost') burnbook.postView(shell, r.id);

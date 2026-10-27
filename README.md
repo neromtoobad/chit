@@ -1,44 +1,64 @@
 # Chit
 
-**Prove one shielded Zcash payment. Reveal nothing else.**
+**A verifiable shielded output: prove one Zcash payment, reveal nothing else.**
 
-Shielded ZEC hides who paid whom. Sometimes you need to show one payment anyway: to a
-merchant who says it never arrived, an exchange's support desk, an accountant, a DAO, or
-the public, when you pay out prizes. Today the only way is to hand over your viewing key,
-which reveals every payment you have ever made or received.
+Shielded ZEC hides who paid whom. Sometimes one payment has to be shown anyway: to a
+merchant who says it never arrived, an exchange's support desk, an auditor, or the public
+when prizes are paid out. Today the only way is to hand over a viewing key, which reveals
+every payment its owner ever made or received.
 
 Chit turns **one** Orchard or Ironwood output into a short code, a *chit*. Anyone can check
-the chit against the chain and see that output's amount, recipient and memo. They see
-nothing else.
+it against the chain and see that output's amount, recipient and memo, and nothing else.
 
 ```
 zout1qypqqqpp4sckleylqe5cleu303gy5m3t8lcsgzsa4dua3ljwdqz26ccwu4xgqhxzl0tkj2dne20skvhgpexyfvpxgfdzjm2uzkasgvp5t9v9y077t3g
 ```
 
-It implements the Orchard and Ironwood output disclosures that draft
-[ZIP 311](https://zips.z.cash/zip-0311) leaves as `TODO: Add support for Orchard`. The
-proposed spec text is in [`docs/zip-0311-orchard-ironwood.md`](docs/zip-0311-orchard-ironwood.md).
+## One engine, three products
 
-## What you can do with it
+**The engine** is a Rust crate on the official Zcash crates (`orchard`,
+`zcash_note_encryption`, `zcash_primitives`). It implements the Orchard and Ironwood output
+disclosures that draft [ZIP 311](https://zips.z.cash/zip-0311) leaves as
+`TODO: Add support for Orchard`, plus a payee-side disclosure ZIP 311 does not have. The
+proposed spec, with test vectors, is in
+[`docs/zip-0311-orchard-ironwood.md`](docs/zip-0311-orchard-ironwood.md). The engine ships as
+WebAssembly, an npm package, a CLI and a self-hostable API, and every product below is
+built on it.
 
-- **Make and check chits.** Pick one output of your transaction, share it as a link or QR
-  code, and let anyone verify it. The checker shows every cryptographic check as it runs.
-- **Pay & prove.** A merchant creates a payment request: a ZIP 321 link with the amount,
-  their address and an invoice reference in the memo. The customer pays it from Zodl in
-  one tap and sends back their chit. Chit then checks it against the request and stamps it
-  **Paid in full**, **Short**, **Wrong recipient** or **Memo mismatch**.
-- **Proof of payouts.** Publish one ledger page that proves a set of shielded payments
-  (prizes, grants, payroll) and their total, line by line. Recipients can be hidden, and it
-  exports to CSV or JSON. The payer's wallet stays closed.
+| Product | What it does | Try it |
+|---|---|---|
+| **Prove** | Make a chit from your viewing key; anyone verifies it step by step. **Pay & prove**: a ZIP 321 request link, then the customer's chit is checked against it (recipient, amount, invoice reference). **Payout ledgers**: one page that proves many payments and their total. | [Check a chit](https://chit.nerom.site/#/check) · [Pay & prove](https://chit.nerom.site/#/request) · [Ledger](https://chit.nerom.site/#/ledger) |
+| **Publish** | **Burn Book**: say anything, burn ZEC to say it, nobody knows who. Posts are payments to a provably unspendable address whose viewing key is public. **Called it**: drand time-locked predictions. **Burn polls** and **masks** (pseudonymous, signed reputations). | [Burn Book](https://chit.nerom.site/#/burn) · [The black-hole proof](https://chit.nerom.site/#/burn/proof) |
+| **Self-host** | `chit serve` next to your own Zebra node: a JSON API (OpenAPI) and the web app from one binary, with no third party. Docker image, CLI, npm `chit-zcash`, `<chit-verify>` embed. | [Developers](https://chit.nerom.site/#/dev) · [`cli/openapi.json`](cli/openapi.json) |
+
+## For judges: the 90-second tour
+
+1. **[The tour page](https://chit.nerom.site/#/tour)** walks the three products with live checks.
+2. **Verify a chit**, and watch 11 cryptographic checks run in your browser.
+3. **Open the black-hole proof**, which re-derives the Burn Book key in WebAssembly and
+   shows why no spend key exists.
+4. **Read [`SECURITY.md`](SECURITY.md)** for exactly what Chit protects and what it does not.
+
+Everything marked **SPECIMEN** is a real, fully proven v6 Ironwood transaction that was
+funded from nothing, so it is not on chain. It lets you try every flow without ZEC. Mainnet
+examples are linked on the tour page.
+
+## Prove: what you can do
+
+- **Make and check chits.** Pick one output of your transaction and share it as a link or
+  QR code. Anyone can verify it, and the checker shows every check as it runs.
+- **Pay & prove.** A merchant creates a ZIP 321 request with the amount, their address and
+  an invoice reference in the memo. The customer pays it from Zodl in one tap and sends
+  back their chit. Chit checks the chit against the request and stamps it **Paid in full**,
+  **Short**, **Wrong recipient** or **Memo mismatch**.
+- **Proof of payouts.** One ledger page proves a set of shielded payments (prizes, grants,
+  payroll) and their total. Recipients can be hidden, and the ledger exports to CSV or
+  JSON. The payer's wallet stays closed.
 - **Developer kit:**
-  - the `chit-zcash` npm package (WebAssembly, works in Node and the browser);
-  - an embeddable `<chit-verify chit="zout1…">` badge;
+  - the `chit-zcash` npm package (WebAssembly, Node and browser);
+  - the `<chit-verify chit="zout1…">` badge;
   - the `chit` CLI;
   - the Rust crate.
-- **The specimen.** A real, fully proven v6 Ironwood transaction that pays out five
-  prizes. It is funded from nothing, so it is not on chain. It ships with the app, with
-  its throwaway keys, so you can try every flow without a wallet. The app always labels it
-  SPECIMEN and never calls it "on chain".
 
 ## Burn Book
 
@@ -79,7 +99,8 @@ proposed spec text is in [`docs/zip-0311-orchard-ironwood.md`](docs/zip-0311-orc
   applied to Orchard-protocol Actions.
 - **The payee's chit** carries `pk_d || esk`. A recipient can rebuild the note's ephemeral
   secret `esk` from its `rseed` (ZIP 212), so the person who was paid can prove what they
-  received. ZIP 311 has no equivalent.
+  received. ZIP 311 has no equivalent. The payer can make this form too (their wallet chose
+  `rseed`), so it says which keys open the note, not who made the chit.
 - **Checking** a chit re-runs the decryption a wallet runs on that one output, with the
   official crates (`orchard` 0.16, `zcash_note_encryption` 0.5.1, `zcash_primitives` 0.31):
   - the AEAD tag must verify;
@@ -197,7 +218,7 @@ chit serve --rpc http://user:pass@127.0.0.1:8232 --web web/dist
 Or run the Docker image:
 
 ```bash
-docker run -p 8787:8787 chit --rpc http://user:pass@your-zebra:8232
+docker run -p 127.0.0.1:8787:8787 chit --rpc http://user:pass@your-zebra:8232
 ```
 
 - **One binary.** It serves the web app and a JSON API from the same origin. The app
@@ -209,7 +230,12 @@ docker run -p 8787:8787 chit --rpc http://user:pass@your-zebra:8232
   - `GET /v1/inspect/{chit}`;
   - `GET /v1/tx/{txid}`;
   - `GET /v1/burns/{txid}`;
-  - `POST /v1/scan`: takes a viewing key, so only call your own instance.
+  - `POST /v1/scan`: takes a viewing key, so it is off unless you start the server with
+    `--allow-scan`, and then only belongs on a private network.
+
+  `valid` means the chit opens the output it names. Before treating a payment as received,
+  also require `mined.height`: a transaction you supply as `tx_hex` is not checked against
+  any chain.
 
   Merchants and support desks can wire it into their own systems.
 - **The CLI** takes `--rpc` (or `CHIT_RPC`) too: `chit check zout1… --rpc …`.
