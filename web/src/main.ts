@@ -1,7 +1,7 @@
 import '@fontsource/gloock';
-import '@fontsource-variable/manrope';
-import '@fontsource/jetbrains-mono/400.css';
-import '@fontsource/jetbrains-mono/600.css';
+import '@fontsource-variable/doto';
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import './style.css';
 import qrcode from 'qrcode-generator';
 import { ChainError, explorerUrl, fetchStats, fetchTx, sourceName, type Network, type TxData } from './chain';

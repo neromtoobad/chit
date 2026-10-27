@@ -30,7 +30,7 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, width: number): strin
 }
 
 export async function drawCard(c: CardInput): Promise<HTMLCanvasElement> {
-  await Promise.all([document.fonts.load('64px Gloock'), document.fonts.load('600 20px "JetBrains Mono"')]).catch(() => {});
+  await Promise.all([document.fonts.load('64px Gloock'), document.fonts.load('600 20px "Geist Mono Variable"')]).catch(() => {});
   const W = 1200;
   const H = 630;
   const cv = document.createElement('canvas');
@@ -51,7 +51,7 @@ export async function drawCard(c: CardInput): Promise<HTMLCanvasElement> {
   x.strokeRect(28, 28, W - 56, H - 56);
 
   x.fillStyle = '#ff7a3d';
-  x.font = '600 20px "JetBrains Mono", monospace';
+  x.font = '600 20px "Geist Mono Variable", monospace';
   x.fillText(`BURN BOOK · ${c.kicker.toUpperCase()}`, 70, 92);
 
   // the message, shrinking to fit
@@ -71,11 +71,11 @@ export async function drawCard(c: CardInput): Promise<HTMLCanvasElement> {
   const amt = `🔥 ${zecString(c.zat)}`;
   x.fillText(amt, 70, H - 82);
   const aw = x.measureText(amt).width;
-  x.font = '600 22px "JetBrains Mono", monospace';
+  x.font = '600 22px "Geist Mono Variable", monospace';
   x.fillStyle = '#c9a58a';
   x.fillText('ZEC BURNED', 86 + aw, H - 88);
 
-  x.font = '600 18px "JetBrains Mono", monospace';
+  x.font = '600 18px "Geist Mono Variable", monospace';
   x.fillStyle = '#93a097';
   const who = c.mask ? `signed by mask ${c.mask}` : 'nobody knows who';
   x.fillText(`${who}${c.specimen ? ' · SPECIMEN, not on chain' : ''}`, 70, H - 46);
