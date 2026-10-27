@@ -1,7 +1,7 @@
 // Share cards: a 1200×630 image of a Burn Book post, drawn in the browser, for posting
 // on X or anywhere else. Nothing is uploaded; the image is a local download.
 
-import { sigil } from './cert';
+import { portrait } from './pixel';
 import { zecString } from './request';
 
 export interface CardInput {
@@ -83,12 +83,9 @@ export async function drawCard(c: CardInput): Promise<HTMLCanvasElement> {
   x.fillText('chit.nerom.site/#/burn', W - 70, H - 46);
   x.textAlign = 'left';
 
-  // the post's pixel sigil, large
-  const s = sigil(c.seed);
+  // the post's pixel identity, large
   x.imageSmoothingEnabled = false;
-  x.filter = 'invert(1) hue-rotate(160deg)';
-  x.drawImage(s, W - 210, 66, 140, 140);
-  x.filter = 'none';
+  x.drawImage(portrait(c.seed), W - 222, 54, 156, 156);
   return cv;
 }
 

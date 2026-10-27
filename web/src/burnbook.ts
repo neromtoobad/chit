@@ -17,7 +17,8 @@
 
 import qrcode from 'qrcode-generator';
 import { ChainError, fetchTx } from './chain';
-import { certificate, checklog, copy, h, short, sigil, zec } from './cert';
+import { certificate, checklog, copy, h, short, zec } from './cert';
+import { portrait } from './pixel';
 import { parseZec, zecString } from './request';
 import * as zpd from './zpd';
 import { isSealed, opensAt, seal, unseal } from './seal-codec.mjs';
@@ -303,7 +304,7 @@ function ember(post: Post, onOpen: () => void, rank?: number, voting = false): H
       'div',
       { class: 'ash-head' },
       rank ? h('span', { class: 'rank' }, `#${rank}`) : null,
-      h('span', { class: 'ash-sigil' }, sigil(post.mask ?? `${post.txid}:${post.action}`)),
+      h('span', { class: 'ash-sigil' }, portrait(post.mask ?? `${post.txid}:${post.action}`)),
       h('span', { class: 'who' }, post.mask ? h('a', { class: 'mask-name', href: `#/burn/masks`, onclick: (e: Event) => e.stopPropagation() }, `🎭 ${maskName(post.mask)}`) : h('span', { class: 'kicker' }, 'anonymous'), h('span', { class: 'kicker' }, post.specimen ? 'Specimen · not on chain' : post.height ? `Block ${post.height.toLocaleString('en-US')}` : 'Pending')),
       post.kind !== 'post' ? h('span', { class: 'tag' }, post.kind) : null,
     ),
@@ -327,7 +328,7 @@ export async function wallView(shell: Shell, tab: 'top' | 'new' | 'sealed' | 'po
       'section',
       { class: 'burn-hero' },
       h('div', {}, h('p', { class: 'eyebrow ember' }, 'Burn Book · Zcash'), h('h1', {}, 'Say anything.', h('br'), h('em', { class: 'ember' }, 'Burn ZEC to say it.'), h('br'), 'Nobody knows who.'), h('p', { class: 'lede' }, 'Every post is a shielded payment to an address nobody can ever spend from. The message rides in the encrypted memo; the key to read it is public, the key to spend it does not exist. Burn more, rise higher. It cannot be deleted, faked, or traced to you.'), h('div', { class: 'row' }, h('a', { class: 'btn fire', href: '#/burn/new' }, 'Write in the book'), h('a', { class: 'btn', href: '#/burn/new/poll' }, 'Start a poll'), h('a', { class: 'btn', href: '#/burn/proof' }, 'Prove the black hole'))),
-      counter,
+      h('div', { class: 'burn-side' }, h('img', { class: 'burn-art', src: `${import.meta.env.BASE_URL}art/hero-burn.jpg`, alt: 'The Burner on a CRT screen, behind a pile of burning coins', width: '1600', height: '1581' }), counter),
     ),
     h('nav', { class: 'tabs' }, h('a', { href: '#/burn', class: tab === 'top' ? 'on' : '' }, 'Most burned'), h('a', { href: '#/burn/new-posts', class: tab === 'new' ? 'on' : '' }, 'Newest'), h('a', { href: '#/burn/called-it', class: tab === 'sealed' ? 'on' : '' }, '🔒 Called it'), h('a', { href: '#/burn/polls', class: tab === 'polls' ? 'on' : '' }, '🗳 Polls'), h('a', { href: '#/burn/masks' }, '🎭 Masks'), h('a', { href: '#/burn/claim' }, 'Claim a burn')),
     grid,
@@ -527,7 +528,7 @@ export async function masksView(shell: Shell) {
     mine.replaceChildren(
       h('h3', {}, 'Your mask'),
       m
-        ? h('div', { class: 'mask-me' }, h('span', { class: 'ash-sigil big' }, sigil(m.pub)), h('div', {}, h('b', {}, `🎭 ${maskName(m.pub)}`), h('p', { class: 'hint' }, 'Lives only in this browser. Sign burns with it to build a reputation nobody can fake or trace to your wallet.')))
+        ? h('div', { class: 'mask-me' }, h('span', { class: 'ash-sigil big' }, portrait(m.pub)), h('div', {}, h('b', {}, `🎭 ${maskName(m.pub)}`), h('p', { class: 'hint' }, 'Lives only in this browser. Sign burns with it to build a reputation nobody can fake or trace to your wallet.')))
         : h('p', { class: 'hint' }, 'No mask in this browser. A mask is an Ed25519 key that never leaves this device; it signs your burns so they add up to one pseudonymous reputation. Your wallet stays unlinked.'),
       h(
         'div',
@@ -558,7 +559,7 @@ export async function masksView(shell: Shell) {
   const w = await wall();
   board.replaceChildren(
     ...(w.masks.length
-      ? w.masks.map((m, i) => h('div', { class: 'mask-row' }, h('span', { class: 'rank' }, `#${i + 1}`), h('span', { class: 'ash-sigil' }, sigil(m.pub)), h('b', {}, `🎭 ${maskName(m.pub)}`), h('span', { class: 'muted small' }, `${m.count} burn${m.count === 1 ? '' : 's'}`), h('span', { class: 'flame' }, '🔥 ', zec(m.burned, 'amount sm'))))
+      ? w.masks.map((m, i) => h('div', { class: 'mask-row' }, h('span', { class: 'rank' }, `#${i + 1}`), h('span', { class: 'ash-sigil' }, portrait(m.pub)), h('b', {}, `🎭 ${maskName(m.pub)}`), h('span', { class: 'muted small' }, `${m.count} burn${m.count === 1 ? '' : 's'}`), h('span', { class: 'flame' }, '🔥 ', zec(m.burned, 'amount sm'))))
       : [h('p', { class: 'muted' }, 'No signed burns yet.')]),
   );
 }

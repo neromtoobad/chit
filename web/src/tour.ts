@@ -6,6 +6,7 @@ import { nodeOnThisOrigin, sourceName } from './chain';
 import { specimen } from './specimen';
 import * as zpd from './zpd';
 import { burnInfo, wall } from './burnbook';
+import { crewTile, type CrewKey } from './crew';
 
 type Shell = (...kids: Node[]) => void;
 
@@ -70,8 +71,8 @@ const KEY = 36;
 
 // ---------- the page ----------
 
-const card = (n: string, title: string, lede: string, ...kids: (Node | null)[]) =>
-  h('section', { class: 'tour-card' }, h('div', { class: 'tour-num' }, n), h('div', { class: 'tour-body' }, h('h2', {}, title), h('p', { class: 'muted' }, lede), ...kids));
+const card = (n: string, who: CrewKey, title: string, lede: string, ...kids: (Node | null)[]) =>
+  h('section', { class: 'tour-card' }, h('div', { class: 'tour-num' }, crewTile(who), h('span', {}, n)), h('div', { class: 'tour-body' }, h('h2', {}, title), h('p', { class: 'muted' }, lede), ...kids));
 
 const wait = (label: string) => checklog(label, [{ id: 'wait', label: 'Running…', ok: null }]);
 
@@ -96,6 +97,7 @@ export async function tourView(shell: Shell) {
       ),
       card(
         '01',
+        'notary',
         'Prove: one payment, nothing else',
         'A chit opens exactly one output of one transaction. Below, the specimen chit is verified step by step. Then it is tampered with five ways, and every tampered copy has to be rejected.',
         h('div', { class: 'tour-pair' }, proveLog, attackLog),
@@ -103,6 +105,7 @@ export async function tourView(shell: Shell) {
       ),
       card(
         '02',
+        'ledger',
         'Publish: payouts and posts anyone can audit',
         'A ledger page proves many payments and their total without opening the payer’s wallet. The Burn Book is a public wall of ZEC burned to an address that provably nobody can spend from.',
         h('div', { class: 'tour-pair' }, ledgerLog, burnLog),
@@ -110,6 +113,7 @@ export async function tourView(shell: Shell) {
       ),
       card(
         '03',
+        'node',
         'Self-host: no explorer, no third party',
         'The same engine ships as a server. Point it at your own Zebra node and serve this site from it: the page then talks only to your node, and no one else learns which transactions you check.',
         h('div', { class: 'tour-pair' }, hostLog, h('pre', { class: 'code block' }, h('code', {}, 'docker build -t chit .\ndocker run -p 8787:8787 chit \\\n  --rpc http://user:pass@zebra:8232\n\n# then open localhost:8787, or:\ncurl localhost:8787/v1/verify/zout1…'))),

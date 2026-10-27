@@ -10,7 +10,9 @@ import { checkInvoice, decodeRequest, encodeRequest, issuedHere, memoFor, rememb
 import { specimen } from './specimen';
 import * as zpd from './zpd';
 import * as burnbook from './burnbook';
+import { portrait } from './pixel';
 import { tourView } from './tour';
+import { boot, CREW, crewBadge, crewTile, notaryScreen, type CrewKey, type NotaryState } from './crew';
 
 const app = document.getElementById('app')!;
 let srcLabel = 'No server, no account. Keys never leave this tab.';
@@ -159,11 +161,14 @@ function voidCert(msg: string) {
 
 async function home() {
   const stage = h('div', { class: 'stage' }, h('div', { class: 'stage-wait' }, 'Rendering a specimen…'));
+  const notary = h('div', { class: 'specimen-side' }, notaryScreen('scan', 'Opening the specimen chit…'));
   const stats = h('div', { class: 'stats' }, stat('—', 'Blocks'), stat('—', 'Transactions · 24h'), stat('0', 'Keys sent, ever'));
+  const hud = h('div', { class: 'wall-hud' }, h('span', {}, 'SIGNALS'), h('span', {}, '[ WAITING ]'));
   shell(
     h(
       'section',
-      { class: 'hero' },
+      { class: 'hero crt-hero' },
+      h('div', { class: 'crt-hero-art', 'aria-hidden': 'true' }),
       h(
         'div',
         { class: 'hero-copy' },
@@ -174,16 +179,26 @@ async function home() {
         h('a', { class: 'tour-link', href: '#/tour' }, 'Judging? Take the 90-second tour →'),
         stats,
       ),
-      stage,
     ),
     h(
       'section',
-      { class: 'uses' },
-      use('Burn Book', 'Say anything, burn ZEC to say it, nobody knows who. Posts are payments to an address nobody can spend from; the most burned rise to the top.', '#/burn', 'Open the book'),
-      use('Pay & prove', 'Send a customer a payment request. When they pay, their chit is checked against it: right recipient, full amount, invoice number in the memo.', '#/request', 'Make a request'),
-      use('Proof of payouts', 'Paying winners, grantees or staff from a shielded wallet? Publish one ledger page that proves what each payout holds, and the total, without opening the wallet.', '#/ledger', 'Build a ledger'),
-      use('For developers', 'The verifier is a Rust crate compiled to WebAssembly. Use it from npm, the command line, or drop a <chit-verify> badge onto any page.', '#/dev', 'Developer kit'),
+      { class: 'specimen' },
+      h('div', { class: 'section-head' }, h('p', { class: 'eyebrow' }, 'Live · in this tab'), h('h2', {}, 'A chit, opened right now'), h('p', { class: 'muted' }, 'The Notary is checking the specimen as you read this, with the official Zcash crates compiled to WebAssembly. Every tick below is computed here, not recorded.')),
+      h('div', { class: 'specimen-grid' }, stage, notary),
     ),
+    h(
+      'section',
+      { class: 'crew' },
+      h('div', { class: 'section-head' }, h('p', { class: 'eyebrow' }, 'One engine · five jobs'), h('h2', {}, 'Meet the crew'), h('p', { class: 'muted' }, 'Each of them runs the same verifier. Pick the job you need.')),
+      h(
+        'div',
+        { class: 'crew-grid' },
+        ...(Object.keys(CREW) as CrewKey[]).map((k) =>
+          h('a', { class: `crew-card c-${k}`, href: CREW[k].href }, crewTile(k), h('span', { class: 'kicker' }, CREW[k].job), h('h3', {}, CREW[k].name), h('p', {}, CREW[k].line), h('span', { class: 'go' }, `${CREW[k].cta} →`)),
+        ),
+      ),
+    ),
+    h('section', { class: 'wall-band' }, h('div', { class: 'wall-copy' }, h('p', { class: 'eyebrow' }, 'Nothing leaves'), h('h2', {}, 'Every screen is yours.'), h('p', {}, 'No server holds your keys, your chits or your history. Links keep their data after the #, which browsers never send. Run it on your own node and not even an explorer sees what you check.')), hud),
     h(
       'section',
       { class: 'reveal' },
@@ -208,19 +223,21 @@ async function home() {
   try {
     const spec = await specimen();
     const chit = spec.chits[0];
+    const t0 = performance.now();
     const c = await checkChit(chit);
+    const ms = Math.round(performance.now() - t0);
     if (!c.report.verified) throw new Error(c.report.error ?? 'specimen failed');
-    stage.replaceChildren(
-      h('a', { class: 'stage-link', href: `#/v/${chit}`, 'aria-label': 'Open the specimen certificate' }, certificate(c.report.verified, { kind: 'valid', source: 'specimen' }, { chit })),
-      checklog('Verification log · specimen', c.report.steps),
-    );
-  } catch {
+    const passed = c.report.steps.filter((s) => s.ok).length;
+    stage.replaceChildren(h('a', { class: 'stage-link', href: `#/v/${chit}`, 'aria-label': 'Open the specimen certificate' }, certificate(c.report.verified, { kind: 'valid', source: 'specimen' }, { chit })));
+    notary.replaceChildren(notaryScreen('verified', `${passed} of ${c.report.steps.length} checks passed in ${ms} ms`), checklog('Verification log · specimen', c.report.steps));
+    hud.replaceChildren(h('span', {}, 'SIGNALS'), h('span', {}, `[ ${passed}/${c.report.steps.length} CHECKS · ${ms} MS · 0 KEYS SENT ]`));
+  } catch (e) {
     stage.replaceChildren();
+    notary.replaceChildren(notaryScreen('void', e instanceof Error ? e.message : String(e)));
   }
 }
 
 const stat = (v: string, l: string) => h('div', {}, h('b', {}, v), h('span', {}, l));
-const use = (title: string, body: string, href: string, cta: string) => h('a', { class: 'use', href }, h('h3', {}, title), h('p', {}, body), h('span', { class: 'go' }, `${cta} →`));
 const reveal = (label: string, key: string, chit: string) => h('tr', {}, h('td', {}, label), h('td', {}, key), h('td', { class: chit === 'No' ? 'no' : '' }, chit));
 
 function make() {
@@ -284,7 +301,7 @@ function make() {
         }
       },
     },
-    h('p', { class: 'eyebrow' }, 'Make'),
+    h('p', { class: 'eyebrow with-badge' }, crewBadge('notary'), 'Make'),
     h('h1', {}, 'Make a chit'),
     h('p', { class: 'muted' }, 'Find the outputs of one of your transactions, then share exactly one of them.'),
     h('label', { for: 'txid' }, 'Transaction'),
@@ -385,7 +402,7 @@ function check() {
             location.hash = `#/v/${m[0].toLowerCase()}`;
           },
         },
-        h('p', { class: 'eyebrow' }, 'Check'),
+        h('p', { class: 'eyebrow with-badge' }, crewBadge('notary'), 'Check'),
         h('h1', {}, 'Check a chit'),
         h('p', { class: 'muted' }, 'Someone sent you proof of a shielded payment. Paste it, and this page checks it against the transaction on chain.'),
         input,
@@ -397,7 +414,7 @@ function check() {
 }
 
 function verifyView(chit: string, request: PayRequest | null, requestRaw: string | null) {
-  const body = h('div', { class: 'pair' }, h('p', { class: 'muted' }, 'Checking…'));
+  const body = h('div', { class: 'pair' }, notaryScreen('scan', 'Fetching the transaction and opening the output…'));
   const raw = h('textarea', { rows: '3', placeholder: 'Raw transaction hex', spellcheck: 'false' });
   const offline = h(
     'details',
@@ -414,7 +431,7 @@ function verifyView(chit: string, request: PayRequest | null, requestRaw: string
   shell(h('div', { class: 'wide' }, invoice, body, offline));
 
   async function run(rawHex?: string) {
-    body.replaceChildren(h('p', { class: 'muted' }, 'Checking…'));
+    body.replaceChildren(notaryScreen('scan', 'Fetching the transaction and opening the output…'));
     let c: Checked;
     try {
       c = await checkChit(chit, rawHex || undefined);
@@ -422,13 +439,13 @@ function verifyView(chit: string, request: PayRequest | null, requestRaw: string
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof ChainError) {
         offline.open = true;
-        return body.replaceChildren(h('div', { class: 'panel' }, h('p', { class: 'kicker' }, 'Not checked yet'), h('h3', {}, 'Could not fetch the transaction'), h('p', {}, msg), h('p', { class: 'hint' }, 'A just-sent payment can take a minute to reach the explorer. You can also paste the raw transaction below.')));
+        return body.replaceChildren(h('div', { class: 'panel' }, notaryScreen('sealed', 'Not checked yet'), h('p', { class: 'kicker' }, 'Not checked yet'), h('h3', {}, 'Could not fetch the transaction'), h('p', {}, msg), h('p', { class: 'hint' }, 'A just-sent payment can take a minute to reach the explorer. You can also paste the raw transaction below.')));
       }
-      return body.replaceChildren(voidCert(msg));
+      return body.replaceChildren(voidCert(msg), h('div', { class: 'side' }, notaryScreen('void', 'This chit does not open anything')));
     }
     const { report } = c;
     if (!report.verified) {
-      return body.replaceChildren(voidCert(report.error ?? 'invalid'), checklog('Verification log', report.steps));
+      return body.replaceChildren(voidCert(report.error ?? 'invalid'), h('div', { class: 'side' }, notaryScreen('void', 'A check failed: see the log'), checklog('Verification log', report.steps)));
     }
     const v = report.verified;
     const mined = c.source === 'chain' && !!c.tx?.height;
@@ -450,10 +467,20 @@ function verifyView(chit: string, request: PayRequest | null, requestRaw: string
     const explorer = explorerUrl(v.network, v.txid);
     body.replaceChildren(
       certificate(v, seal, { height: c.tx?.height, time: c.tx?.time, confirmations: c.tx?.confirmations, chit, specimen: c.source === 'specimen' }),
-      h('div', { class: 'side' }, checklog('Verification log', report.steps, extra), explorer && c.source === 'chain' ? h('a', { class: 'link small', href: explorer, target: '_blank', rel: 'noreferrer' }, 'Open the transaction on Blockchair ↗') : null),
+      h('div', { class: 'side' }, notaryScreen(...poseFor(seal)), checklog('Verification log', report.steps, extra), explorer && c.source === 'chain' ? h('a', { class: 'link small', href: explorer, target: '_blank', rel: 'noreferrer' }, 'Open the transaction on Blockchair ↗') : null),
     );
   }
   run();
+}
+
+/** The Notary's pose for a verdict: only a mined, matching payment gets the stamp. */
+function poseFor(seal: Seal): [NotaryState, string] {
+  if (seal.kind === 'paid') return ['verified', 'Invoice paid in full'];
+  if (seal.kind === 'wrong' || seal.kind === 'short' || seal.kind === 'memo') return ['void', 'Valid chit, but it does not match the request'];
+  if (seal.kind === 'valid' && seal.source === 'chain') return ['verified', 'Mined and verified'];
+  if (seal.kind === 'valid' && seal.source === 'specimen') return ['sealed', 'Specimen: valid, never mined'];
+  if (seal.kind === 'valid' && seal.source === 'mempool') return ['sealed', 'Valid, waiting to be mined'];
+  return ['sealed', 'Valid against the pasted transaction'];
 }
 
 function invoiceCard(r: PayRequest, ours: boolean) {
@@ -501,7 +528,7 @@ function newRequest() {
             );
           },
         },
-        h('p', { class: 'eyebrow' }, 'Pay & prove'),
+        h('p', { class: 'eyebrow with-badge' }, crewBadge('courier'), 'Pay & prove'),
         h('h1', {}, 'Request a payment'),
         h('p', { class: 'muted' }, 'Make a link your customer pays from. Their proof of payment is then checked against exactly what you asked for.'),
         h('label', {}, 'Pay to'),
@@ -547,7 +574,7 @@ function requestView(r: PayRequest, raw: string) {
       h(
         'section',
         { class: 'panel request' },
-        h('p', { class: 'eyebrow' }, 'Payment request'),
+        h('p', { class: 'eyebrow with-badge' }, crewBadge('courier'), 'Payment request'),
         h('h1', {}, r.label || 'Payment requested'),
         h('div', { class: 'request-body' }, qr(uri, 'qr lg'), h('div', { class: 'grow' }, h('span', { class: 'kicker' }, 'Amount'), h('div', {}, zec(r.amountZat, 'amount lg')), h('span', { class: 'kicker' }, 'Memo'), h('p', { class: 'mono' }, memoFor(r)), h('span', { class: 'kicker' }, 'To'), h('p', { class: 'mono small', title: r.address }, short(r.address, 18, 12)), h('div', { class: 'row' }, h('a', { class: 'btn primary', href: uri }, 'Pay in wallet'), h('button', { class: 'btn', type: 'button', onclick: (e: Event) => copy(uri, e.currentTarget as HTMLElement) }, 'Copy payment URI')))),
         h('p', { class: 'hint' }, 'Scan with Zodl or any ZIP 321 wallet. The amount and memo are filled in for you; keep the memo as it is, it is how the payee matches your payment.'),
@@ -593,7 +620,7 @@ function newLedger() {
             location.hash = ledgerLink(chits, title.value.trim(), hide.checked).split('#')[1];
           },
         },
-        h('p', { class: 'eyebrow' }, 'Proof of payouts'),
+        h('p', { class: 'eyebrow with-badge' }, crewBadge('ledger'), 'Proof of payouts'),
         h('h1', {}, 'Publish a payout ledger'),
         h('p', { class: 'muted' }, 'One page that proves a set of shielded payments and their total, checked line by line in the reader’s browser. Your wallet stays closed: only these outputs are revealed.'),
         h('label', {}, 'Title'),
@@ -645,7 +672,7 @@ function ledgerView(chits: string[], title: string, hide: boolean) {
       h(
         'article',
         { class: 'ledger-doc' },
-        h('div', { class: 'ledger-head' }, h('div', {}, h('p', { class: 'eyebrow' }, 'Proof of payouts'), h('h1', {}, title || 'Shielded payouts'), h('p', { class: 'muted small' }, 'Every line is a chit checked against its transaction in your browser, with the official Zcash crates. It proves each output exists on chain and what it holds, without opening the payer’s wallet. It does not prove who sent them: chits carry no signature.'), hide ? h('p', { class: 'muted small' }, 'Recipients are hidden, so a reader cannot tell payouts from payments to the publisher’s own addresses.') : null), totals),
+        h('div', { class: 'ledger-head' }, h('div', {}, h('p', { class: 'eyebrow with-badge' }, crewBadge('ledger'), 'Proof of payouts'), h('h1', {}, title || 'Shielded payouts'), h('p', { class: 'muted small' }, 'Every line is a chit checked against its transaction in your browser, with the official Zcash crates. It proves each output exists on chain and what it holds, without opening the payer’s wallet. It does not prove who sent them: chits carry no signature.'), hide ? h('p', { class: 'muted small' }, 'Recipients are hidden, so a reader cannot tell payouts from payments to the publisher’s own addresses.') : null), totals),
         h('table', { class: 'ledger' }, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Paid to'), h('th', {}, 'Memo'), h('th', {}, 'Block'), h('th', { class: 'r' }, 'Amount'), h('th', {}, 'Status'))), tbody),
         exportRow,
       ),
@@ -708,7 +735,7 @@ function ledgerView(chits: string[], title: string, hide: boolean) {
 function sigilTiny(seed: string) {
   const el = document.createElement('span');
   el.className = 'sigil-tiny';
-  import('./cert').then(({ sigil }) => el.append(sigil(seed)));
+  el.append(portrait(seed));
   return el;
 }
 
@@ -733,7 +760,7 @@ function dev() {
     h(
       'div',
       { class: 'narrow dev' },
-      h('p', { class: 'eyebrow' }, 'Developer kit'),
+      h('p', { class: 'eyebrow with-badge' }, crewBadge('node'), 'Developer kit'),
       h('h1', {}, 'Verify chits in your own product'),
       h('p', { class: 'muted' }, 'One Rust crate, built on the official Zcash crates, shipped three ways. Nothing in it touches the network: you fetch the transaction, it checks the chit.'),
       h('h2', {}, 'Embed a badge'),
@@ -780,6 +807,7 @@ function render() {
 }
 
 window.addEventListener('hashchange', render);
+boot();
 render();
 
 // Say where transactions come from, and work offline once loaded.
