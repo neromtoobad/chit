@@ -45,12 +45,13 @@ function db(): Promise<IDBDatabase | null> {
 let dbp: Promise<IDBDatabase | null> | null = null;
 const open = () => (dbp ??= db());
 
-async function cached(txid: string): Promise<TxData | null> {
+async function cached(network: Network, txid: string): Promise<TxData | null> {
   const d = await open();
   if (!d) return null;
   return new Promise((resolve) => {
     try {
-      const r = d.transaction(STORE).objectStore(STORE).get(txid);
+      // Ignore legacy txid-only entries: their network cannot be established.
+      const r = d.transaction(STORE).objectStore(STORE).get(`${network}:${txid}`);
       r.onsuccess = () => resolve(r.result ? { ...r.result, confirmations: null, source: `${r.result.source}, cached` } : null);
       r.onerror = () => resolve(null);
     } catch {
@@ -59,11 +60,11 @@ async function cached(txid: string): Promise<TxData | null> {
   });
 }
 
-async function remember(txid: string, tx: TxData) {
+async function remember(network: Network, txid: string, tx: TxData) {
   if (!tx.height) return; // only mined transactions are immutable
   const d = await open();
   try {
-    d?.transaction(STORE, 'readwrite').objectStore(STORE).put({ hex: tx.hex, height: tx.height, time: tx.time, source: tx.source }, txid);
+    d?.transaction(STORE, 'readwrite').objectStore(STORE).put({ hex: tx.hex, height: tx.height, time: tx.time, source: tx.source }, `${network}:${txid}`);
   } catch {
     /* quota or private mode: fine, just uncached */
   }
@@ -102,10 +103,10 @@ export function fetchTx(network: Network, txid: string): Promise<TxData> {
 }
 
 async function load(network: Network, txid: string): Promise<TxData> {
-  const hit = await cached(txid);
+  const hit = await cached(network, txid);
   if (hit) return hit;
   const tx = (await nodeOnThisOrigin()) ? await fromNode(txid) : await fromBlockchair(network, txid);
-  remember(txid, tx);
+  remember(network, txid, tx);
   return tx;
 }
 

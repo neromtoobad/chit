@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --experimental-vm-modules tests/regressions.test.mjs",
     "wasm": "cd ../wasm && wasm-pack build --target web --release --out-dir ../web/pkg",
     "dev": "vite --port 5290 --strictPort",
     "build": "tsc --noEmit && vite build",
