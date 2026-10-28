@@ -52,6 +52,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: ./scripts/build.sh
+      - run: npm test --prefix web
       - name: wasm size budget (1.2 MB)
         run: test $(stat -c%s web/pkg/chit_wasm_bg.wasm) -lt 1200000
       - run: ./scripts/npm.sh

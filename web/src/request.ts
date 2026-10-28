@@ -24,10 +24,13 @@ export function encodeRequest(r: PayRequest): string {
   return b64url(JSON.stringify({ n: r.network, a: r.address, z: r.amountZat, r: r.reference, l: r.label }));
 }
 
+const MAX_ZAT = 21_000_000 * 100_000_000;
+const validAmount = (zat: number) => Number.isSafeInteger(zat) && zat > 0 && zat <= MAX_ZAT;
+
 export function decodeRequest(s: string): PayRequest | null {
   try {
     const o = JSON.parse(unb64url(s));
-    if (typeof o.a !== 'string' || !Number.isSafeInteger(o.z) || o.z <= 0 || typeof o.r !== 'string') return null;
+    if (typeof o.a !== 'string' || !validAmount(o.z) || typeof o.r !== 'string') return null;
     return { network: o.n === 'test' ? 'test' : 'main', address: o.a, amountZat: o.z, reference: o.r, label: typeof o.l === 'string' ? o.l : '' };
   } catch {
     return null;
@@ -62,7 +65,7 @@ export function parseZec(s: string): number | null {
   const m = s.trim().match(/^(\d{1,8})(?:\.(\d{1,8}))?$/);
   if (!m) return null;
   const zat = Number(m[1]) * 1e8 + Number((m[2] ?? '').padEnd(8, '0'));
-  return zat > 0 ? zat : null;
+  return validAmount(zat) ? zat : null;
 }
 
 /** The memo the payer's wallet will attach. */

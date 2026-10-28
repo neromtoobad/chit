@@ -62,7 +62,8 @@ impl App {
 
     fn fetch(&self, network: NetworkType, txid: &str) -> Result<Fetched, Reply> {
         let txid = txid.to_lowercase();
-        if let Some(f) = self.cache().get(&txid) {
+        let key = format!("{network:?}:{txid}");
+        if let Some(f) = self.cache().get(&key) {
             return Ok(f.clone());
         }
         let f = self
@@ -74,7 +75,7 @@ impl App {
             if c.len() >= CACHE_MAX {
                 c.clear();
             }
-            c.insert(txid, f.clone());
+            c.insert(key, f.clone());
         }
         Ok(f)
     }
@@ -347,4 +348,73 @@ pub fn run(source: Box<dyn Source>, cfg: Config) -> Result<(), String> {
         let _ = w.join();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct CountingSource {
+        calls: Arc<AtomicUsize>,
+        height: Option<u64>,
+    }
+
+    impl Source for CountingSource {
+        fn name(&self) -> &'static str {
+            "test-source"
+        }
+
+        fn fetch(&self, network: NetworkType, _txid: &str) -> Result<Fetched, String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Fetched {
+                hex: format!("{network:?}"),
+                height: self.height,
+                confirmations: None,
+                source: self.name(),
+            })
+        }
+    }
+
+    fn app(height: Option<u64>) -> (App, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = App {
+            web: None,
+            source: Box::new(CountingSource {
+                calls: calls.clone(),
+                height,
+            }),
+            cache: Mutex::new(HashMap::new()),
+            cors: None,
+            allow_scan: false,
+        };
+        (app, calls)
+    }
+
+    #[test]
+    fn mined_cache_is_network_specific_and_normalizes_txids() {
+        let (app, calls) = app(Some(10));
+        let txid = "ab".repeat(32);
+        for network in [NetworkType::Main, NetworkType::Test, NetworkType::Regtest] {
+            let expected = format!("{network:?}");
+            assert_eq!(app.fetch(network, &txid).unwrap().hex, expected);
+            assert_eq!(
+                app.fetch(network, &txid.to_uppercase()).unwrap().hex,
+                expected
+            );
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(app.cache().len(), 3);
+    }
+
+    #[test]
+    fn unmined_transactions_are_not_cached() {
+        let (app, calls) = app(None);
+        let txid = "ab".repeat(32);
+        app.fetch(NetworkType::Main, &txid).unwrap();
+        app.fetch(NetworkType::Main, &txid).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(app.cache().is_empty());
+    }
 }
