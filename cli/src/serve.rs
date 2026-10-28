@@ -399,7 +399,10 @@ mod tests {
         for network in [NetworkType::Main, NetworkType::Test, NetworkType::Regtest] {
             let expected = format!("{network:?}");
             assert_eq!(app.fetch(network, &txid).unwrap().hex, expected);
-            assert_eq!(app.fetch(network, &txid.to_uppercase()).unwrap().hex, expected);
+            assert_eq!(
+                app.fetch(network, &txid.to_uppercase()).unwrap().hex,
+                expected
+            );
         }
         assert_eq!(calls.load(Ordering::SeqCst), 3);
         assert_eq!(app.cache().len(), 3);
